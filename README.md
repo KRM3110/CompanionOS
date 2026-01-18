@@ -1,160 +1,149 @@
-CompanionOS (Avalon)
+🚀 CompanionOS (Avalon)
 
-CompanionOS is a local, privacy-first AI companion system designed to run entirely on your machine.
-Unlike cloud-based assistants, CompanionOS gives you full ownership of your data, memory, and tools while still behaving like a modern, intelligent assistant.
+Your AI. Your machine. Your rules.
 
-Avalon = Artificial Virtual Assistant with Logical and Operational Navigation
+CompanionOS is a local-first AI companion platform that turns a large language model into a persistent, goal-aware digital partner — not just a chatbot.
+
+Unlike cloud AI tools that forget everything and control your data, CompanionOS runs entirely on your machine, remembers what matters to you, and can take real action (like reminders and alerts) — all without sending your data anywhere.
+
+Avalon stands for
+
+Artificial Virtual Assistant with Logical and Operational Navigation
 
 ⸻
 
-🚀 What Is CompanionOS?
+✨ Why CompanionOS Exists
 
-CompanionOS is an AI operating loop, not just a chatbot.
+Most AI assistants today are:
+	•	Stateless
+	•	Cloud-dependent
+	•	Disposable after each chat
+	•	Unsafe to trust with personal context
+
+CompanionOS is built to answer a different question:
+
+What if your AI actually remembered you, respected boundaries, and helped you execute — privately?
+
+⸻
+
+🧠 What Makes This Different
+
+CompanionOS is not a chatbot.
+It’s an AI operating loop.
 
 It combines:
-	•	Local LLM inference
-	•	Structured long-term memory
-	•	Persona-driven behavior
-	•	Safety & quality enforcement
-	•	Actionable tools (alerts/reminders)
+	•	🏠 Local LLMs (via Ollama)
+	•	🧠 Structured long-term memory
+	•	🎭 Persona-driven behavior
+	•	🛡️ A built-in safety & quality judge
+	•	🛠️ Actionable tools (alerts & reminders)
+	•	🔁 Post-chat intelligence pipeline
 
-All running offline using Docker.
+All running offline, orchestrated with Docker.
+
+⸻
+
+⚙️ How It Works (High Level)
+
+The Core Loop
+	1.	You send a message from the UI
+	2.	The backend:
+	•	Loads your persona
+	•	Pulls relevant memory
+	•	Builds a deterministic system prompt
+	3.	A local LLM generates a response
+	4.	A Judge Agent reviews it for safety & alignment
+	5.	The final response is returned
+	6.	A background pipeline extracts memory & tools
+
+This loop runs every message.
+
+⸻
+
+🛡️ The Judge System (Built-In Safety)
+
+Every assistant response is reviewed by a second AI agent before you see it.
+
+The Judge:
+	•	Enforces persona consistency
+	•	Blocks manipulative or unsafe behavior
+	•	Automatically rewrites risky responses
+
+Verdicts:
+	•	PASS → show response
+	•	REWRITE → safe correction
+	•	BLOCK → refusal with explanation
+
+This keeps the system trustworthy, even with local models.
+
+⸻
+
+🧠 Long-Term Memory (Not Prompt Stuffing)
+
+CompanionOS doesn’t just shove old messages into prompts.
+
+Instead, a Memory Agent:
+	•	Extracts stable facts (goals, preferences, plans)
+	•	Stores them structurally in SQLite
+	•	Applies confidence thresholds to avoid noise
+	•	Updates session summaries automatically
+
+Your AI actually remembers — cleanly.
+
+⸻
+
+⏰ Tools That Act (Alerts MVP)
+
+You can say things like:
+
+“Remind me tomorrow to apply to 3 companies.”
+
+CompanionOS will:
+	1.	Detect intent using an LLM
+	2.	Convert it into a structured alert
+	3.	Store it locally
+	4.	Notify you via the UI when it’s due
+	5.	Let you acknowledge or dismiss it
+
+No plugins. No cloud. No hacks.
+
+⸻
+
+🎭 Personas (Behavior as Config)
+
+Personality isn’t hardcoded.
+
+Personas are config files:
+	•	Coach
+	•	Mentor
+	•	Calm
+
+Each persona defines:
+	•	Tone
+	•	Strictness
+	•	Empathy
+	•	Memory behavior
+	•	Response format
+
+Switch personas → behavior changes instantly.
 
 ⸻
 
 🛠️ Tech Stack
 
-Backend — The Brain
-	•	Language: Python 3.11+
-	•	Framework: FastAPI
-	•	AI Engine: Ollama (local LLMs like Llama 3)
-	•	Database: SQLite (local, file-based)
-	•	Key Libraries:
-	•	pydantic – strict schema validation
-	•	requests – Ollama API communication
-	•	pytz – timezone-aware scheduling
+Backend
+	•	Python 3.11+
+	•	FastAPI
+	•	Ollama (Llama 3, local inference)
+	•	SQLite
+	•	Modular agents & tool system
 
-Frontend — The Face
-	•	Framework: Next.js 14 (App Router)
-	•	Language: TypeScript
-	•	Styling: Tailwind CSS
-	•	State Management: React hooks (useState, useEffect)
+Frontend
+	•	Next.js 14
+	•	TypeScript
+	•	Tailwind CSS
+	•	Minimal, functional UI
 
 Infrastructure
 	•	Docker Compose
-	•	Backend (FastAPI)
-	•	Frontend (Next.js)
-	•	Ollama (LLM runtime)
-
-Run everything with one command.
-
-⸻
-
-🏗️ Architecture Overview
-
-The Core Loop
-	1.	User sends a message from the frontend
-	2.	FastAPI backend:
-	•	Loads persona configuration
-	•	Retrieves relevant memory (session + global)
-	•	Builds a deterministic system prompt
-	3.	Prompt is sent to Ollama
-	4.	LLM generates a draft response
-	5.	Draft is passed to the Judge Agent
-	6.	Final response is returned to the user
-
-⸻
-
-🛡️ The Judge System (Safety Layer)
-
-Every assistant response is reviewed by a Judge Agent:
-	•	Ensures persona consistency
-	•	Prevents unsafe or manipulative outputs
-	•	Decides:
-	•	PASS – response is acceptable
-	•	REWRITE – minimal safe correction
-	•	BLOCK – refuse with explanation
-
-This guarantees quality + alignment, even with local models.
-
-⸻
-
-🔁 The Pipeline (Post-Chat Intelligence)
-
-After each chat turn, a background pipeline runs:
-
-🧠 Memory Agent (MX1)
-	•	Extracts stable user facts and preferences
-	•	Stores them as structured memory
-	•	Uses confidence thresholds to avoid noise
-	•	Updates session summaries every N messages
-
-🛠️ Tools Agent
-	•	Scans conversation for actionable intent
-	•	Example:
-“Remind me tomorrow to apply to 3 companies”
-	•	Converts intent into structured tool actions
-
-⸻
-
-⏰ Alert System (Tools MVP)
-
-The first implemented tool is in-app alerts:
-	1.	Extraction
-	•	LLM detects time-based or task-based intent
-	2.	Storage
-	•	Python calculates exact due_at
-	•	Alert stored in SQLite
-	3.	Notification
-	•	Frontend polls backend periodically
-	•	When alert is due → toast notification
-	4.	User Control
-	•	Acknowledge or dismiss alerts from UI
-
-⸻
-
-✨ Key Features
-	•	🏠 Local & Private
-No data leaves your machine. No cloud APIs.
-	•	🧠 Long-Term Memory
-Remembers goals, preferences, and plans across sessions.
-	•	🎭 Personas
-Switch personalities (Coach, Mentor, Calm) via config files.
-	•	⏰ Active Tools
-Alerts & reminders extracted directly from conversation.
-	•	🛡️ Self-Correction
-Judge agent enforces safety and persona consistency.
-	•	📦 One-Command Setup
-Fully dockerized for easy onboarding.
-
-
-
-
-▶️ Running CompanionOS
-
-Prerequisites
-	•	Docker
-	•	Docker Compose
-	•	Ollama installed locally
-
-Start Everything
-
-🎯 Project Goals
-	•	Build a sovereign AI companion
-	•	Avoid cloud dependency and vendor lock-in
-	•	Provide a framework for:
-	•	Personas
-	•	Memory
-	•	Tools
-	•	Local agents
-
-This is designed as a foundation, not a one-off demo.
-
-⸻
-
-🔮 Future Work
-	•	More tools (calendar, tasks, notes)
-	•	Plugin-style tool marketplace
-	•	Better scheduling & background workers
-	•	Multi-agent routing
-	•	Mobile UI
+	•	One command to run everything
