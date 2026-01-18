@@ -1,0 +1,13 @@
+Persona:
+{persona_json}
+
+Memory Context (optional):
+{memory_text}
+
+User message:
+{user_message}
+
+Assistant draft response:
+{assistant_draft}
+
+Now judge the draft and return ONLY the JSON object.

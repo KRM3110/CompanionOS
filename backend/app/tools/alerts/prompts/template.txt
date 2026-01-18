@@ -1,0 +1,19 @@
+extract alert creation intent from this conversation.
+
+CURRENT TIME: {current_time} (Asia/Kolkata)
+
+PERSONA CONFIG:
+{persona_json}
+
+MEMORY CONTEXT:
+{memory_text}
+
+RECENT MESSAGES (last 10):
+{recent_messages_json}
+
+ASSISTANT FINAL MESSAGE:
+{assistant_final_text}
+
+Analyze the conversation and extract any explicit user commitments or requests for alerts/reminders.
+Return JSON with "create" array containing alert objects (max 2).
+If no explicit commitments with due times: return {{"create": []}}.

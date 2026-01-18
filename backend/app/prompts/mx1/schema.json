@@ -1,0 +1,14 @@
+{
+    "items": [
+      {
+        "scope": "global|session",
+        "key": "snake_case_key",
+        "value": "one sentence",
+        "confidence": 0.0
+      }
+    ],
+    "summary_patch": {
+      "summary": "short 5-10 lines max summary of the session so far",
+      "open_loops": ["list of pending tasks or follow-ups"]
+    }
+  }
