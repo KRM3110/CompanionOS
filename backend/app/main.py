@@ -39,6 +39,9 @@ from .db import (
     get_due_alerts,
 )
 
+from .security import content_guard
+from .security.guard_db import insert_audit_record, get_audit_by_doc, list_audit_records
+
 from .tools.base import ToolContext
 from .tools.runner import run_tools
 from .tools.bootstrap import build_tools_registry
@@ -557,3 +560,65 @@ def upsert_tool_setting_api(req: ToolSettingUpsertReq):
         session_id=req.session_id,
     )
     return {"id": _id}
+
+
+# ---------- Security / Content Guard APIs (Feature 3) ----------
+
+class ScanTextReq(BaseModel):
+    text: str = Field(..., min_length=1, max_length=100_000, description="Raw text to scan")
+    document_id: str | None = Field(None, description="Optional doc ID to record audit result")
+
+
+@app.post("/security/scan")
+def security_scan_api(req: ScanTextReq):
+    """
+    Standalone scan endpoint — run the Content Guard pipeline on raw text
+    without uploading a document. Useful for testing and inspection.
+
+    If document_id is provided, the result is also written to guard_audit.
+    """
+    result = content_guard.scan(req.text)
+
+    audit_id = None
+    if req.document_id:
+        audit_id = insert_audit_record(
+            document_id=req.document_id,
+            verdict=result.verdict,
+            patterns_hit=result.patterns_hit,
+            llm_reason=result.llm_reason or None,
+        )
+
+    return {
+        "verdict": result.verdict,
+        "patterns_hit": result.patterns_hit,
+        "llm_reason": result.llm_reason,
+        "audit_id": audit_id,
+        # Return sanitised text preview (first 500 chars) so caller can inspect
+        "sanitized_preview": result.sanitized_text[:500] if result.sanitized_text else "",
+    }
+
+
+@app.get("/security/audit")
+def list_audit_api(verdict: str | None = None, limit: int = 100):
+    """
+    List all guard audit records, optionally filtered by verdict.
+
+    Query params:
+      - verdict: CLEAN | FLAGGED | BLOCKED  (omit for all)
+      - limit:   max records (default 100)
+    """
+    if verdict and verdict not in ("CLEAN", "FLAGGED", "BLOCKED"):
+        raise HTTPException(status_code=400, detail="verdict must be CLEAN, FLAGGED, or BLOCKED")
+    return list_audit_records(verdict_filter=verdict, limit=limit)
+
+
+@app.get("/security/audit/{document_id}")
+def get_audit_by_doc_api(document_id: str):
+    """
+    Get the most recent guard audit record for a specific document.
+    Returns 404 if the document was never scanned (pre-Feature 3).
+    """
+    record = get_audit_by_doc(document_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="No audit record found for this document")
+    return record

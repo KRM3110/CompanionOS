@@ -112,6 +112,20 @@ def init_db() -> None:
     """
     )
 
+    # ---------------- Guard Audit (Feature 3: RAG Security) ----------------
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS guard_audit (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            verdict TEXT NOT NULL CHECK(verdict IN ('CLEAN', 'FLAGGED', 'BLOCKED')),
+            patterns_hit TEXT,          -- JSON list of matched pattern category names
+            llm_reason TEXT,            -- Stage 2 explanation if run (may be NULL for CLEAN)
+            scanned_at TEXT NOT NULL
+        )
+        """
+    )
+
     conn.commit()
     conn.close()
 
