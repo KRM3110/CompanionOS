@@ -16,3 +16,6 @@ __pycache__/
 
 # Docker
 .docker/
+
+# Docs
+docs/
