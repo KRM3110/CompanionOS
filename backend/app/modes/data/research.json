@@ -1,0 +1,27 @@
+{
+  "id": "research",
+  "name": "Research Mode",
+  "description": "Verbose, tool-augmented mode with global memory for deep exploration and analysis.",
+  "response_policy": {
+    "empathy_level": 0.4,
+    "directness_level": 0.6,
+    "verbosity": "long",
+    "format": "bullets",
+    "tone": "clinical"
+  },
+  "memory_policy": {
+    "enabled": true,
+    "scope": "global",
+    "decay_days": null
+  },
+  "safety_policy": {
+    "strictness": 0.6,
+    "no_deception": true,
+    "no_dependency": true,
+    "no_medical_legal_claims": true
+  },
+  "tool_policy": {
+    "auto_invoke": true,
+    "allowed_tools": []
+  }
+}

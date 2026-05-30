@@ -3,7 +3,7 @@ content_guard.py — Orchestrator for the Content Guard pipeline (Feature 3).
 
 Pipeline:
   1. Stage 1: injection_detector.scan()   — fast regex
-  2. (if SUSPICIOUS) Stage 2: llm_guard.scan_chunks() — Ollama LLM check
+  2. (if SUSPICIOUS) Stage 2: llm_guard.scan_chunks() — Gemini LLM check
   3. (if FLAGGED) sanitizer.sanitize()   — strip injections from text
   4. Return GuardResult with final verdict + sanitised text
 
@@ -30,7 +30,7 @@ class GuardResult:
     llm_reason: str = ""
 
 
-def scan(text: str) -> GuardResult:
+async def scan(text: str) -> GuardResult:
     """
     Run the full two-stage content guard on raw document text.
 
@@ -55,7 +55,7 @@ def scan(text: str) -> GuardResult:
     # ------------------------------------------------------------------
     # Stage 2 — LLM secondary verdict (only runs when Stage 1 flags)
     # ------------------------------------------------------------------
-    stage2 = llm_guard.scan_chunks(stage1.suspicious_chunks)
+    stage2 = await llm_guard.scan_chunks(stage1.suspicious_chunks)
     logger.info("Content guard Stage 2: verdict=%s reason=%s", stage2["verdict"], stage2["reason"])
 
     final_verdict = stage2["verdict"]

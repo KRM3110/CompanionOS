@@ -12,16 +12,12 @@ class ToolContext:
     Keep it stable so tools remain swappable.
     """
     session_id: str
-    persona: Dict[str, Any]
+    mode: Dict[str, Any]
     memory_items: List[Dict[str, Any]]
     session_summary: Optional[Dict[str, Any]]  # whatever your db.get_session_summary returns
     recent_messages: List[Dict[str, str]]      # [{"role": "...", "content": "..."}]
     user_message: str
     assistant_final: str
-
-    # Model config (for tools that call Ollama)
-    ollama_base_url: str
-    ollama_model: str
 
 
 class ToolPlugin(Protocol):

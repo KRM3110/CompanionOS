@@ -2,7 +2,7 @@
 guard_db.py — Database helpers for the guard_audit table (Feature 3).
 
 Provides insert, query-by-doc, and list-all functions.
-All functions are thin wrappers around raw SQLite — no ORM needed.
+All functions use the app's async aiosqlite connection model.
 """
 
 import json
@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from .db import get_conn
+from ..db import get_conn
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +20,7 @@ def _utc_now() -> str:
     return datetime.utcnow().isoformat() + "Z"
 
 
-# ---------------------------------------------------------------------------
-# Write
-# ---------------------------------------------------------------------------
-
-def insert_audit_record(
+async def insert_audit_record(
     document_id: str,
     verdict: str,
     patterns_hit: Optional[List[str]] = None,
@@ -45,35 +41,30 @@ def insert_audit_record(
     audit_id = str(uuid4())
     patterns_json = json.dumps(patterns_hit or [])
 
-    conn = get_conn()
-    conn.execute(
-        """
-        INSERT INTO guard_audit (id, document_id, verdict, patterns_hit, llm_reason, scanned_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (audit_id, document_id, verdict, patterns_json, llm_reason, _utc_now()),
-    )
-    conn.commit()
-    conn.close()
+    async with get_conn() as conn:
+        await conn.execute(
+            """
+            INSERT INTO guard_audit (id, document_id, verdict, patterns_hit, llm_reason, scanned_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (audit_id, document_id, verdict, patterns_json, llm_reason, _utc_now()),
+        )
+        await conn.commit()
     logger.info("guard_audit: %s → %s (doc=%s)", audit_id, verdict, document_id)
     return audit_id
 
 
-# ---------------------------------------------------------------------------
-# Read
-# ---------------------------------------------------------------------------
-
-def get_audit_by_doc(document_id: str) -> Optional[Dict[str, Any]]:
+async def get_audit_by_doc(document_id: str) -> Optional[Dict[str, Any]]:
     """
     Retrieve the guard audit record for a specific document_id.
     Returns None if no record exists (e.g. document pre-dates Feature 3).
     """
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT * FROM guard_audit WHERE document_id = ? ORDER BY scanned_at DESC LIMIT 1",
-        (document_id,),
-    ).fetchone()
-    conn.close()
+    async with get_conn() as conn:
+        async with conn.execute(
+            "SELECT * FROM guard_audit WHERE document_id = ? ORDER BY scanned_at DESC LIMIT 1",
+            (document_id,),
+        ) as cur:
+            row = await cur.fetchone()
 
     if not row:
         return None
@@ -86,7 +77,7 @@ def get_audit_by_doc(document_id: str) -> Optional[Dict[str, Any]]:
     return result
 
 
-def list_audit_records(
+async def list_audit_records(
     verdict_filter: Optional[str] = None,
     limit: int = 100,
 ) -> List[Dict[str, Any]]:
@@ -97,29 +88,28 @@ def list_audit_records(
         verdict_filter: "CLEAN" | "FLAGGED" | "BLOCKED" | None (all)
         limit:          Max records to return (default 100).
     """
-    conn = get_conn()
-
-    if verdict_filter:
-        rows = conn.execute(
-            """
-            SELECT * FROM guard_audit
-            WHERE verdict = ?
-            ORDER BY scanned_at DESC
-            LIMIT ?
-            """,
-            (verdict_filter, limit),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """
-            SELECT * FROM guard_audit
-            ORDER BY scanned_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
-
-    conn.close()
+    async with get_conn() as conn:
+        if verdict_filter:
+            async with conn.execute(
+                """
+                SELECT * FROM guard_audit
+                WHERE verdict = ?
+                ORDER BY scanned_at DESC
+                LIMIT ?
+                """,
+                (verdict_filter, limit),
+            ) as cur:
+                rows = await cur.fetchall()
+        else:
+            async with conn.execute(
+                """
+                SELECT * FROM guard_audit
+                ORDER BY scanned_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ) as cur:
+                rows = await cur.fetchall()
 
     results = []
     for row in rows:

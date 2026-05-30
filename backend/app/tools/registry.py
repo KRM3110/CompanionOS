@@ -30,7 +30,7 @@ class ToolsRegistry:
     def enabled_tools(self) -> List[ToolPlugin]:
         """
         Global tool enable/disable flags (simple version).
-        Later: enable per persona/session.
+        Later: enable per mode/session.
         """
         enabled: List[ToolPlugin] = []
         for t in self.list_tools():
