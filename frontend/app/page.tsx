@@ -1,20 +1,18 @@
 // app/page.tsx
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import {
   AssistantMode,
-  Message,
   Alert,
-  RAGSource,
-  WebSource,
   WorkspaceDocument,
 } from '@/lib/types';
 import ChatWindow from '@/components/ChatWindow';
 import AlertsPanel from '@/components/AlertsPanel';
 import WorkspacePanel from '@/components/WorkspacePanel';
 import Toast from '@/components/Toast';
+import { useChatSession } from '@/hooks/useChatSession';
 
 const MODE_DISPLAY: Record<string, { label: string; icon: string }> = {
   safe:     { label: 'Chat',          icon: '💬' },
@@ -23,15 +21,9 @@ const MODE_DISPLAY: Record<string, { label: string; icon: string }> = {
 };
 
 export default function Home() {
-  // ─── Mode & Session ─────────────────────────────────────────────────────────
+  // ─── Modes ──────────────────────────────────────────────────────────────────
   const [modes, setModes] = useState<AssistantMode[]>([]);
   const [selectedModeId, setSelectedModeId] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [ragUsedMap, setRagUsedMap] = useState<Record<string, boolean>>({});
-  const [ragSourcesMap, setRagSourcesMap] = useState<Record<string, RAGSource[]>>({});
-  const [webSourcesMap, setWebSourcesMap] = useState<Record<string, WebSource[]>>({});
-  const [summary, setSummary] = useState<string>('');
 
   // ─── Workspace ──────────────────────────────────────────────────────────────
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
@@ -45,64 +37,9 @@ export default function Home() {
   const [alertFilter, setAlertFilter] = useState<string>('active');
 
   // ─── UI ─────────────────────────────────────────────────────────────────────
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-
-  // ─── Init ───────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    loadModes();
-    loadSessionFromStorage();
-  }, []);
-
-  useEffect(() => {
-    if (activeWorkspaceId) {
-      loadWorkspaceDocs(activeWorkspaceId);
-    } else {
-      setWorkspaceDocs([]);
-    }
-  }, [activeWorkspaceId]);
-
-  // ─── Loaders ────────────────────────────────────────────────────────────────
-  const loadModes = async () => {
-    try {
-      const data = await api.getModes();
-      setModes(data);
-    } catch (err) {
-      console.error('Failed to load modes', err);
-    }
-  };
-
-  const ALLOWED_MODES = ['safe', 'focus', 'research'];
-
-  const loadSessionFromStorage = () => {
-    const storedSessionId = localStorage.getItem('session_id');
-    const storedModeId = localStorage.getItem('mode_id');
-    const storedWorkspaceId = localStorage.getItem('workspace_id');
-    if (storedSessionId && storedModeId && ALLOWED_MODES.includes(storedModeId)) {
-      setSessionId(storedSessionId);
-      setSelectedModeId(storedModeId);
-      loadSessionMessages(storedSessionId);
-      loadAlerts(storedSessionId, 'active');
-      loadSummary(storedSessionId);
-    } else {
-      // Clear stale mode that's no longer in the allowed list
-      localStorage.removeItem('mode_id');
-    }
-    if (storedWorkspaceId) {
-      setActiveWorkspaceId(storedWorkspaceId);
-    }
-  };
-
-  const loadSessionMessages = async (sid: string) => {
-    try {
-      const data = await api.getSessionMessages(sid);
-      setMessages(data.messages);
-    } catch (err) {
-      console.error('Failed to load messages:', err);
-    }
-  };
 
   const loadAlerts = useCallback(async (sid: string, status: string) => {
     setAlertsLoading(true);
@@ -116,23 +53,60 @@ export default function Home() {
     }
   }, []);
 
-  const loadSummary = async (sid: string) => {
-    try {
-      const data = await api.getSessionSummary(sid);
-      if (data.summary?.summary) setSummary(data.summary.summary);
-    } catch {
-      // Not available yet
-    }
-  };
+  // ─── Chat session (extracted hook) ──────────────────────────────────────────
+  const {
+    sessionId,
+    messages,
+    ragUsedMap,
+    ragSourcesMap,
+    webSourcesMap,
+    summary,
+    loading,
+    sendMessage,
+    endSession,
+    resetForWorkspaceSwitch,
+  } = useChatSession({
+    activeWorkspaceId,
+    selectedModeId,
+    setSelectedModeId,
+    onToast: setToast,
+    onError: setError,
+    onSessionCreated: (sid) => loadAlerts(sid, 'active'),
+    onAlertCreated: (message) => {
+      setToast({ message: message || 'New alert created', type: 'info' });
+      if (sessionId) loadAlerts(sessionId, alertFilter);
+    },
+  });
 
-  const loadWorkspaceDocs = async (wsId: string) => {
-    try {
-      const docs = await api.getDocuments(wsId);
-      setWorkspaceDocs(docs);
-    } catch (e) {
-      console.error('Failed to load workspace documents:', e);
+  // ─── Init ───────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await api.getModes();
+        setModes(data);
+      } catch (err) {
+        console.error('Failed to load modes', err);
+      }
+    })();
+
+    const storedWorkspaceId = localStorage.getItem('workspace_id');
+    if (storedWorkspaceId) setActiveWorkspaceId(storedWorkspaceId);
+  }, []);
+
+  useEffect(() => {
+    if (!activeWorkspaceId) {
+      setWorkspaceDocs([]);
+      return;
     }
-  };
+    (async () => {
+      try {
+        const docs = await api.getDocuments(activeWorkspaceId);
+        setWorkspaceDocs(docs);
+      } catch (e) {
+        console.error('Failed to load workspace documents:', e);
+      }
+    })();
+  }, [activeWorkspaceId]);
 
   // ─── Due Alerts Polling ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -156,73 +130,14 @@ export default function Home() {
   }, [sessionId]);
 
   // ─── Handlers ───────────────────────────────────────────────────────────────
-  const handleSendMessage = async (message: string) => {
-    setLoading(true);
-    setError(null);
-
-    // Auto-create session on first message - default to 'safe' (plain chat) if no mode picked
-    let sid = sessionId;
-    const currentMode = selectedModeId ?? 'safe';
-    if (!sid) {
-      if (!selectedModeId) setSelectedModeId('safe');
-      try {
-        const data = await api.createSession(currentMode);
-        sid = data.session_id;
-        setSessionId(sid);
-        localStorage.setItem('session_id', sid);
-        localStorage.setItem('mode_id', currentMode);
-        loadAlerts(sid, 'active');
-      } catch (err: any) {
-        setError(err.message);
-        setToast({ message: 'Failed to start session', type: 'error' });
-        setLoading(false);
-        return;
-      }
-    }
-
-    const tempId = `temp-${Date.now()}`;
-    const tempUserMessage: Message = { id: tempId, role: 'user', content: message, created_at: new Date().toISOString() };
-    setMessages((prev) => [...prev, tempUserMessage]);
-
+  const refreshWorkspaceDocs = useCallback(async (wsId: string) => {
     try {
-      const response = await api.sendMessage(sid, message, activeWorkspaceId, currentMode);
-      const assistantId = `assistant-${Date.now()}`;
-
-      setMessages((prev) => {
-        const withoutTemp = prev.filter((m) => m.id !== tempId);
-        return [
-          ...withoutTemp,
-          { id: `user-${Date.now()}`, role: 'user' as const, content: message, created_at: new Date().toISOString() },
-          { id: assistantId, role: 'assistant' as const, content: response.assistant, created_at: new Date().toISOString() },
-        ];
-      });
-
-      const msgSources = response.sources || [];
-      if (response.rag_used || msgSources.length > 0) {
-        setRagUsedMap((prev) => ({ ...prev, [assistantId]: true }));
-      }
-      setRagSourcesMap((prev) => ({ ...prev, [assistantId]: msgSources }));
-      if (response.web_sources?.length) {
-        setWebSourcesMap((prev) => ({ ...prev, [assistantId]: response.web_sources! }));
-      }
-
-      const alertEvent = response.tool_events?.find((e) => e.type === 'alert_created');
-      if (alertEvent) {
-        setToast({ message: alertEvent.message || 'New alert created', type: 'info' });
-        loadAlerts(sid, alertFilter);
-      }
-
-      if (messages.length % 5 === 0) loadSummary(sid);
-    } catch (err: any) {
-      const msg = err.message || 'Unknown error';
-      const isServiceError = msg.includes('502') || msg.includes('504') || msg.includes('fetch failed');
-      setError(isServiceError ? 'Backend service is unavailable. Please check your Docker containers.' : msg);
-      setToast({ message: 'Failed to send message', type: 'error' });
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
-    } finally {
-      setLoading(false);
+      const docs = await api.getDocuments(wsId);
+      setWorkspaceDocs(docs);
+    } catch (e) {
+      console.error('Failed to load workspace documents:', e);
     }
-  };
+  }, []);
 
   const handleUploadDocument = async (file: File) => {
     if (!activeWorkspaceId) {
@@ -230,16 +145,16 @@ export default function Home() {
       return;
     }
     await api.uploadDocument(activeWorkspaceId, file);
-    await loadWorkspaceDocs(activeWorkspaceId);
-    setWorkspaceRefreshKey((k) => k + 1); // refresh workspace doc counts
+    await refreshWorkspaceDocs(activeWorkspaceId);
+    setWorkspaceRefreshKey((k) => k + 1);
   };
 
   const handleDeleteDocument = async (doc: WorkspaceDocument) => {
     if (!activeWorkspaceId) return;
     if (!confirm(`Remove "${doc.filename}" from this workspace?`)) return;
     await api.deleteDocument(activeWorkspaceId, doc.id);
-    await loadWorkspaceDocs(activeWorkspaceId);
-    setWorkspaceRefreshKey((k) => k + 1); // refresh workspace doc counts
+    await refreshWorkspaceDocs(activeWorkspaceId);
+    setWorkspaceRefreshKey((k) => k + 1);
   };
 
   const handleUpdateAlert = async (alertId: string, status: 'done' | 'cancelled') => {
@@ -258,31 +173,16 @@ export default function Home() {
   };
 
   const handleEndSession = () => {
-    setSessionId(null);
-    setMessages([]);
+    endSession();
     setAlerts([]);
-    setSummary('');
-    setRagUsedMap({});
-    setRagSourcesMap({});
-    setWebSourcesMap({});
-    localStorage.removeItem('session_id');
-    localStorage.removeItem('mode_id');
-    setToast({ message: 'Session ended', type: 'info' });
   };
 
   const handleSelectWorkspace = (id: string | null) => {
     if (id === activeWorkspaceId) return;
-    // Switching workspace starts a fresh chat
+    // Switching workspace starts a fresh chat.
     setActiveWorkspaceId(id);
-    setMessages([]);
-    setRagUsedMap({});
-    setRagSourcesMap({});
-    setWebSourcesMap({});
-    setSummary('');
-    setSessionId(null);
+    resetForWorkspaceSwitch();
     setAlerts([]);
-    localStorage.removeItem('session_id');
-    localStorage.removeItem('mode_id');
     if (id) localStorage.setItem('workspace_id', id);
     else localStorage.removeItem('workspace_id');
   };
@@ -296,16 +196,16 @@ export default function Home() {
     setToast({ message: `Switched to ${modeLabel}`, type: 'info' });
   };
 
-  const activeModeDisplay = selectedModeId ? (MODE_DISPLAY[selectedModeId] ?? { label: selectedModeId, icon: '✦' }) : null;
+  const activeModeDisplay = selectedModeId
+    ? (MODE_DISPLAY[selectedModeId] ?? { label: selectedModeId, icon: '✦' })
+    : null;
 
   // ─── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-screen bg-background text-foreground overflow-hidden">
 
       {/* ── Left Sidebar ──────────────────────────────────────────────────── */}
-      {/* Icon strip - always visible */}
       <div className="w-12 bg-muted/10 border-r border-border flex flex-col items-center py-3 gap-1 shrink-0">
-        {/* Toggle */}
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
           className="w-9 h-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
@@ -316,7 +216,6 @@ export default function Home() {
           </svg>
         </button>
 
-        {/* New chat */}
         <button
           onClick={handleEndSession}
           className="w-9 h-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
@@ -327,7 +226,6 @@ export default function Home() {
           </svg>
         </button>
 
-        {/* Workspaces */}
         <button
           onClick={() => setSidebarOpen(true)}
           className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${
@@ -340,7 +238,6 @@ export default function Home() {
           </svg>
         </button>
 
-        {/* Alerts - only when session active */}
         {sessionId && (
           <button
             onClick={() => setShowAlerts(!showAlerts)}
@@ -360,21 +257,17 @@ export default function Home() {
 
       </div>
 
-      {/* Expanded panel */}
       <div className={`${sidebarOpen ? 'w-56' : 'w-0'} bg-muted/20 border-r border-border flex flex-col shrink-0 overflow-hidden transition-all duration-300`}>
         <div className="min-w-[224px]">
 
-          {/* Logo */}
           <div className="px-4 py-4 border-b border-border shrink-0">
             <h1 className="text-sm font-bold bg-gradient-to-r from-primary to-violet-600 bg-clip-text text-transparent">
               CompanionOS
             </h1>
           </div>
 
-          {/* Scrollable content */}
           <div className="overflow-y-auto p-3 space-y-5" style={{ maxHeight: 'calc(100vh - 120px)' }}>
 
-            {/* Workspaces */}
             <WorkspacePanel
               activeWorkspaceId={activeWorkspaceId}
               onSelectWorkspace={handleSelectWorkspace}
@@ -383,7 +276,6 @@ export default function Home() {
               refreshTrigger={workspaceRefreshKey}
             />
 
-            {/* Documents */}
             {activeWorkspaceId && (
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -430,7 +322,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* Session summary */}
             {sessionId && summary && (
               <div className="p-3 bg-primary/5 border border-primary/10 rounded-xl">
                 <h3 className="text-xs font-semibold text-primary mb-1.5 uppercase tracking-wider">Summary</h3>
@@ -439,7 +330,6 @@ export default function Home() {
             )}
           </div>
 
-          {/* Session controls */}
           {sessionId && (
             <div className="p-3 border-t border-border space-y-2">
               {activeModeDisplay && (
@@ -478,7 +368,7 @@ export default function Home() {
 
         <ChatWindow
           messages={messages}
-          onSendMessage={handleSendMessage}
+          onSendMessage={sendMessage}
           loading={loading}
           ragUsedMap={ragUsedMap}
           ragSourcesMap={ragSourcesMap}
@@ -490,7 +380,6 @@ export default function Home() {
           webSourcesMap={webSourcesMap}
         />
 
-        {/* Right Alerts Panel */}
         {showAlerts && sessionId && (
           <div className="w-96 bg-background/80 border-l border-border backdrop-blur-md animate-slide-in shadow-xl z-20 overflow-y-auto shrink-0">
             <AlertsPanel
@@ -502,8 +391,8 @@ export default function Home() {
             />
           </div>
         )}
-        </div>{/* end inner flex */}
-      </div>{/* end main area */}
+        </div>
+      </div>
 
       {toast && (
         <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
