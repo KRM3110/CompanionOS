@@ -34,27 +34,27 @@ def execute_alert_creation(
     
     for alert_data in alerts[:2]:  # Cap at 2 per turn
         try:
-            print(f"[DEBUG] Processing alert data: {alert_data}")
+            logger.debug("Processing alert data: %s", alert_data)
             title = str(alert_data.get("title") or "").strip()
             body = str(alert_data.get("body") or "").strip()
             due_at = str(alert_data.get("due_at") or "").strip()
             confidence = alert_data.get("confidence", 0.8)
             source_message_id = alert_data.get("source_message_id")
-            
+
             if not title or not due_at:
-                logger.warning(f"Skipping alert with missing title or due_at: {alert_data}")
-                print(f"[DEBUG] Missing title or due_at. Title: '{title}', Due: '{due_at}'")
+                logger.warning(
+                    "Skipping alert with missing title or due_at (title=%r, due=%r): %s",
+                    title, due_at, alert_data,
+                )
                 continue
-            
-            # Validate confidence
+
             try:
                 confidence = float(confidence)
                 confidence = max(0.0, min(1.0, confidence))
             except (ValueError, TypeError):
                 confidence = 0.8
-            
-            print(f"[DEBUG] Creating alert in DB: {title} at {due_at} (scope={scope})")
-            # Create alert in DB
+
+            logger.debug("Creating alert in DB: %s at %s (scope=%s)", title, due_at, scope)
             alert_id = create_alert(
                 scope=scope,
                 session_id=session_id if scope == "session" else None,
@@ -64,21 +64,18 @@ def execute_alert_creation(
                 confidence=confidence,
                 source_message_id=source_message_id,
             )
-            print(f"[DEBUG] Alert created successfully with ID: {alert_id}")
-            
-            # Add tool event
+
             tool_events.append({
                 "type": "alert_created",
                 "alert_id": alert_id,
                 "title": title,
                 "due_at": due_at,
             })
-            
-            logger.info(f"Created alert: {title} (due: {due_at})")
-            
-        except Exception as e:
-            print(f"[DEBUG] ERROR creating alert: {e}")
-            logger.error(f"Failed to create alert {alert_data}: {e}", exc_info=True)
+
+            logger.info("Created alert id=%s title=%r due=%s", alert_id, title, due_at)
+
+        except Exception:
+            logger.exception("Failed to create alert: %s", alert_data)
     
     return tool_events
 

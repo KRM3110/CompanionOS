@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'CompanionOS',
-  description: 'Persona-driven AI companion interface',
+  description: 'Mode-driven AI companion interface',
 };
 
 export default function RootLayout({

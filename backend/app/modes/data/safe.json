@@ -1,0 +1,27 @@
+{
+  "id": "safe",
+  "name": "Safe Mode",
+  "description": "Maximum safety strictness with session-only memory and no auto-invocation of tools.",
+  "response_policy": {
+    "empathy_level": 0.6,
+    "directness_level": 0.5,
+    "verbosity": "medium",
+    "format": "freeform",
+    "tone": "warm"
+  },
+  "memory_policy": {
+    "enabled": true,
+    "scope": "session",
+    "decay_days": null
+  },
+  "safety_policy": {
+    "strictness": 1.0,
+    "no_deception": true,
+    "no_dependency": true,
+    "no_medical_legal_claims": true
+  },
+  "tool_policy": {
+    "auto_invoke": false,
+    "allowed_tools": []
+  }
+}

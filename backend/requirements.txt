@@ -1,5 +1,26 @@
-fastapi
-uvicorn[standard]
-requests
-pydantic
-pytz
+# Pinned with `~=` (compatible-release): patch upgrades allowed, minor/major locked.
+# For a stricter lock, run `pip freeze > requirements.txt` inside the running container.
+
+fastapi~=0.115.0
+uvicorn[standard]~=0.32.0
+requests~=2.32.0
+pydantic~=2.9.0
+pydantic-settings~=2.6.0
+pytz~=2024.2
+aiosqlite~=0.20.0
+alembic~=1.13.0
+httpx~=0.27.0
+pyyaml~=6.0.2
+
+# Feature 1 — RAG Document Workspace
+chromadb~=0.5.0
+pypdf~=5.0.0
+python-docx~=1.1.0
+python-multipart~=0.0.12
+
+# Feature 2 — Research Mode
+ddgs~=6.3.0
+
+# LLM — LangChain + Google Gemini
+langchain-google-genai~=2.0.0
+langchain-core~=0.3.0

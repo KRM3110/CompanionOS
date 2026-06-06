@@ -2,8 +2,8 @@ extract alert creation intent from this conversation.
 
 CURRENT TIME: {current_time} (Asia/Kolkata)
 
-PERSONA CONFIG:
-{persona_json}
+MODE CONFIG:
+{mode_json}
 
 MEMORY CONTEXT:
 {memory_text}
