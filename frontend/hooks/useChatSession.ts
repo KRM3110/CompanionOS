@@ -28,7 +28,6 @@ interface UseChatSessionReturn {
   ragUsedMap: Record<string, boolean>;
   ragSourcesMap: Record<string, RAGSource[]>;
   webSourcesMap: Record<string, WebSource[]>;
-  summary: string;
   loading: boolean;
   sendMessage: (message: string) => Promise<void>;
   endSession: () => void;
@@ -51,7 +50,6 @@ export function useChatSession(opts: UseChatSessionOpts): UseChatSessionReturn {
   const [ragUsedMap, setRagUsedMap] = useState<Record<string, boolean>>({});
   const [ragSourcesMap, setRagSourcesMap] = useState<Record<string, RAGSource[]>>({});
   const [webSourcesMap, setWebSourcesMap] = useState<Record<string, WebSource[]>>({});
-  const [summary, setSummary] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
   // Keep latest values accessible inside async handlers without re-creating them.
@@ -60,37 +58,34 @@ export function useChatSession(opts: UseChatSessionOpts): UseChatSessionReturn {
   useEffect(() => { activeWorkspaceIdRef.current = activeWorkspaceId; }, [activeWorkspaceId]);
   useEffect(() => { selectedModeIdRef.current = selectedModeId; }, [selectedModeId]);
 
-  const loadSessionMessages = useCallback(async (sid: string) => {
-    try {
-      const data = await api.getSessionMessages(sid);
-      setMessages(data.messages);
-    } catch (err) {
-      console.error('Failed to load messages:', err);
-    }
-  }, []);
-
-  const loadSummary = useCallback(async (sid: string) => {
-    try {
-      const data = await api.getSessionSummary(sid);
-      if (data.summary?.summary) setSummary(data.summary.summary);
-    } catch {
-      // Summary may not exist yet for short sessions.
-    }
-  }, []);
-
-  // Bootstrap from localStorage on mount.
+  // Bootstrap from localStorage on mount. Verify the stored session still
+  // exists on the backend before restoring it; the DB may have been wiped
+  // since the last visit, leaving a stale session_id in localStorage.
   useEffect(() => {
     const storedSessionId = localStorage.getItem('session_id');
     const storedModeId = localStorage.getItem('mode_id');
-    if (storedSessionId && storedModeId && ALLOWED_MODES.includes(storedModeId)) {
-      setSessionId(storedSessionId);
-      setSelectedModeId(storedModeId);
-      loadSessionMessages(storedSessionId);
-      loadSummary(storedSessionId);
-      onSessionCreated?.(storedSessionId);
-    } else {
+    if (!storedSessionId || !storedModeId || !ALLOWED_MODES.includes(storedModeId)) {
+      localStorage.removeItem('session_id');
       localStorage.removeItem('mode_id');
+      return;
     }
+    (async () => {
+      try {
+        const data = await api.getSessionMessages(storedSessionId);
+        setSessionId(storedSessionId);
+        setSelectedModeId(storedModeId);
+        setMessages(data.messages);
+        onSessionCreated?.(storedSessionId);
+      } catch (err: any) {
+        const msg = err?.message ?? '';
+        if (msg.includes('404')) {
+          localStorage.removeItem('session_id');
+          localStorage.removeItem('mode_id');
+          return;
+        }
+        console.error('Failed to restore session:', err);
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -168,11 +163,6 @@ export function useChatSession(opts: UseChatSessionOpts): UseChatSessionReturn {
         onAlertCreated?.(alertEvent.message || 'New alert created');
       }
 
-      // Summary cadence: every ~5 turns, refresh the persisted summary.
-      setMessages((prev) => {
-        if (prev.length % 5 === 0) loadSummary(sid!);
-        return prev;
-      });
     } catch (err: any) {
       const msg = err.message || 'Unknown error';
       const isServiceError =
@@ -187,12 +177,11 @@ export function useChatSession(opts: UseChatSessionOpts): UseChatSessionReturn {
     } finally {
       setLoading(false);
     }
-  }, [sessionId, setSelectedModeId, onError, onToast, onSessionCreated, onAlertCreated, loadSummary]);
+  }, [sessionId, setSelectedModeId, onError, onToast, onSessionCreated, onAlertCreated]);
 
   const endSession = useCallback(() => {
     setSessionId(null);
     setMessages([]);
-    setSummary('');
     setRagUsedMap({});
     setRagSourcesMap({});
     setWebSourcesMap({});
@@ -207,7 +196,6 @@ export function useChatSession(opts: UseChatSessionOpts): UseChatSessionReturn {
     setRagUsedMap({});
     setRagSourcesMap({});
     setWebSourcesMap({});
-    setSummary('');
     localStorage.removeItem('session_id');
     localStorage.removeItem('mode_id');
   }, []);
@@ -218,7 +206,6 @@ export function useChatSession(opts: UseChatSessionOpts): UseChatSessionReturn {
     ragUsedMap,
     ragSourcesMap,
     webSourcesMap,
-    summary,
     loading,
     sendMessage,
     endSession,

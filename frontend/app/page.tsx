@@ -60,7 +60,6 @@ export default function Home() {
     ragUsedMap,
     ragSourcesMap,
     webSourcesMap,
-    summary,
     loading,
     sendMessage,
     endSession,
@@ -91,6 +90,11 @@ export default function Home() {
 
     const storedWorkspaceId = localStorage.getItem('workspace_id');
     if (storedWorkspaceId) setActiveWorkspaceId(storedWorkspaceId);
+
+    // Default-collapse the sidebar on narrow viewports so the chat column has room.
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
+      setSidebarOpen(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -172,11 +176,6 @@ export default function Home() {
     if (sessionId) loadAlerts(sessionId, status);
   };
 
-  const handleEndSession = () => {
-    endSession();
-    setAlerts([]);
-  };
-
   const handleSelectWorkspace = (id: string | null) => {
     if (id === activeWorkspaceId) return;
     // Switching workspace starts a fresh chat.
@@ -208,8 +207,10 @@ export default function Home() {
       <div className="w-12 bg-muted/10 border-r border-border flex flex-col items-center py-3 gap-1 shrink-0">
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="w-9 h-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+          className="w-9 h-9 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 active:scale-95 transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]"
           title={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+          aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+          aria-expanded={sidebarOpen}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.8">
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M3 12h18M3 18h18" />
@@ -217,9 +218,10 @@ export default function Home() {
         </button>
 
         <button
-          onClick={handleEndSession}
-          className="w-9 h-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+          onClick={() => { endSession(); setAlerts([]); }}
+          className="w-9 h-9 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 active:scale-95 transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]"
           title="New chat"
+          aria-label="New chat"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.8">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -228,10 +230,11 @@ export default function Home() {
 
         <button
           onClick={() => setSidebarOpen(true)}
-          className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${
+          className={`w-9 h-9 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 flex items-center justify-center rounded-lg active:scale-95 transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] ${
             activeWorkspaceId ? 'text-primary hover:bg-primary/10' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
           }`}
           title="Workspaces"
+          aria-label="Open workspaces"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.8">
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
@@ -241,10 +244,12 @@ export default function Home() {
         {sessionId && (
           <button
             onClick={() => setShowAlerts(!showAlerts)}
-            className={`relative w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${
+            className={`relative w-9 h-9 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 flex items-center justify-center rounded-lg active:scale-95 transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] ${
               showAlerts ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
             }`}
             title="Alerts"
+            aria-label="Toggle alerts panel"
+            aria-pressed={showAlerts}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.8">
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
@@ -257,7 +262,7 @@ export default function Home() {
 
       </div>
 
-      <div className={`${sidebarOpen ? 'w-56' : 'w-0'} bg-muted/20 border-r border-border flex flex-col shrink-0 overflow-hidden transition-all duration-300`}>
+      <div className={`${sidebarOpen ? 'w-56' : 'w-0'} bg-muted/20 border-r border-border flex flex-col shrink-0 overflow-hidden transition-[width] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]`}>
         <div className="min-w-[224px]">
 
           <div className="px-4 py-4 border-b border-border shrink-0">
@@ -310,7 +315,7 @@ export default function Home() {
                           <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
                         <span className="text-xs text-foreground truncate flex-1">{doc.filename}</span>
-                        <button onClick={() => handleDeleteDocument(doc)} className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all" title="Remove">
+                        <button onClick={() => handleDeleteDocument(doc)} className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive active:scale-95 transition-[opacity,color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]" title="Remove" aria-label={`Remove ${doc.filename}`}>
                           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                           </svg>
@@ -322,12 +327,6 @@ export default function Home() {
               </div>
             )}
 
-            {sessionId && summary && (
-              <div className="p-3 bg-primary/5 border border-primary/10 rounded-xl">
-                <h3 className="text-xs font-semibold text-primary mb-1.5 uppercase tracking-wider">Summary</h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">{summary}</p>
-              </div>
-            )}
           </div>
 
           {sessionId && (
@@ -342,8 +341,8 @@ export default function Home() {
                 </div>
               )}
               <button
-                onClick={handleEndSession}
-                className="w-full px-2 py-1.5 text-xs font-medium text-destructive bg-destructive/10 hover:bg-destructive/20 rounded-lg transition-colors"
+                onClick={() => { endSession(); setAlerts([]); }}
+                className="w-full px-2 py-1.5 text-xs font-medium text-destructive bg-destructive/10 hover:bg-destructive/20 active:scale-[0.97] rounded-lg transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]"
               >
                 End Session
               </button>
@@ -381,7 +380,7 @@ export default function Home() {
         />
 
         {showAlerts && sessionId && (
-          <div className="w-96 bg-background/80 border-l border-border backdrop-blur-md animate-slide-in shadow-xl z-20 overflow-y-auto shrink-0">
+          <div className="absolute inset-y-0 right-0 z-20 w-full md:relative md:w-96 md:inset-auto bg-background/95 md:bg-background/80 border-l border-border backdrop-blur-md animate-slide-in shadow-xl overflow-y-auto shrink-0">
             <AlertsPanel
               alerts={alerts}
               onUpdateAlert={handleUpdateAlert}

@@ -19,7 +19,7 @@ python-docx~=1.1.0
 python-multipart~=0.0.12
 
 # Feature 2 — Research Mode
-ddgs~=6.3.0
+ddgs~=9.14.0
 
 # LLM — LangChain + Google Gemini
 langchain-google-genai~=2.0.0

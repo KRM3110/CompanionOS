@@ -29,26 +29,26 @@ export default function AlertsPanel({
   const getPriorityColor = (priority: string) => {
     switch (priority) {
       case 'high':
-        return 'border-l-red-500 bg-red-50/50';
+        return 'border-l-red-500/70 bg-red-500/5';
       case 'medium':
-        return 'border-l-yellow-500 bg-yellow-50/50';
+        return 'border-l-amber-500/70 bg-amber-500/5';
       case 'low':
-        return 'border-l-blue-500 bg-blue-50/50';
+        return 'border-l-violet-500/60 bg-violet-500/5';
       default:
-        return 'border-l-gray-300 bg-gray-50/50';
+        return 'border-l-slate-500/40 bg-slate-500/5';
     }
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'active':
-        return 'bg-orange-100 text-orange-700 border border-orange-200';
+        return 'bg-amber-500/10 text-amber-300 border border-amber-500/20';
       case 'done':
-        return 'bg-green-100 text-green-700 border border-green-200';
+        return 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20';
       case 'cancelled':
-        return 'bg-muted text-muted-foreground border border-border';
+        return 'bg-muted/40 text-muted-foreground border border-border';
       default:
-        return 'bg-muted text-muted-foreground';
+        return 'bg-muted/40 text-muted-foreground border border-border';
     }
   };
 
@@ -60,8 +60,9 @@ export default function AlertsPanel({
           <h2 className="text-xl font-bold text-foreground">Alerts</h2>
           <button
             onClick={onClose}
-            className="p-1 hover:bg-muted rounded-full transition-colors text-muted-foreground hover:text-foreground"
+            className="p-1 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]"
             title="Close Panel"
+            aria-label="Close alerts panel"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
@@ -73,6 +74,7 @@ export default function AlertsPanel({
           <select
             value={filter}
             onChange={(e) => handleFilterChange(e.target.value)}
+            aria-label="Filter alerts by status"
             className="w-full px-4 py-2 bg-background border border-border rounded-lg text-sm text-foreground appearance-none focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer hover:border-primary/30 transition-colors"
           >
             <option value="active">Active Alerts</option>
@@ -102,7 +104,7 @@ export default function AlertsPanel({
           alerts.map((alert) => (
             <div
               key={alert.id}
-              className={`border border-border rounded-xl p-4 shadow-sm hover:shadow-md transition-all duration-200 border-l-[3px] group bg-card ${getPriorityColor(alert.priority)}`}
+              className={`border border-border rounded-xl p-4 shadow-sm hover:shadow-md border-l-2 group bg-card transition-[box-shadow,border-color,background-color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] ${getPriorityColor(alert.priority)}`}
             >
               <div className="flex items-start justify-between mb-3">
                 <span
@@ -112,8 +114,8 @@ export default function AlertsPanel({
                 >
                   {alert.status}
                 </span>
-                <span className="text-xs font-semibold uppercase text-muted-foreground opacity-70 group-hover:opacity-100 transition-opacity">
-                  {alert.priority} Priority
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors duration-150">
+                  {alert.priority} priority
                 </span>
               </div>
 
@@ -125,18 +127,20 @@ export default function AlertsPanel({
                 </span>
 
                 {alert.status === 'active' && (
-                  <div className="flex gap-2">
+                  <div className="flex gap-1">
                     <button
                       onClick={() => onUpdateAlert(alert.id, 'done')}
-                      className="p-1.5 text-green-600 hover:bg-green-100 rounded-md transition-colors"
-                      title="Mark Done"
+                      className="p-1.5 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 flex items-center justify-center text-emerald-400 hover:bg-emerald-500/10 active:scale-95 rounded-md transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]"
+                      title="Mark done"
+                      aria-label="Mark alert done"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
                     </button>
                     <button
                       onClick={() => onUpdateAlert(alert.id, 'cancelled')}
-                      className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md transition-colors"
+                      className="p-1.5 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/50 active:scale-95 rounded-md transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]"
                       title="Cancel"
+                      aria-label="Cancel alert"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>

@@ -131,14 +131,15 @@ async def chat_send_api(req: ChatSendReq):
         }
 
     web_context = ""
+    focus_web_results: List[Dict[str, Any]] = []
     if mode_id == "focus":
         try:
             from ..research.web_searcher import search as web_search
 
-            web_results = await web_search(req.message, max_results=8)
-            if web_results:
+            focus_web_results = await web_search(req.message, max_results=8)
+            if focus_web_results:
                 lines = ["[Web Search Results]"]
-                for i, r in enumerate(web_results, 1):
+                for i, r in enumerate(focus_web_results, 1):
                     lines.append(f"{i}. {r['title']}")
                     lines.append(f"   {r['snippet']}")
                     lines.append(f"   URL: {r['url']}")
@@ -210,6 +211,7 @@ async def chat_send_api(req: ChatSendReq):
         "assistant": final_text,
         "rag_used": bool(rag_sources),
         "sources": rag_sources,
+        "web_sources": focus_web_results,
         "pipeline": pipeline_debug,
         "tool_events": [],
         "timings_ms": timings_ms,

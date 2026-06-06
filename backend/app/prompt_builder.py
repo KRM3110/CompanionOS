@@ -107,8 +107,21 @@ def build_system_prompt(
         if is_web:
             parts.append(
                 "You have been given live web search results below. Read ALL of them carefully "
-                "and give a comprehensive answer that covers every relevant item found. Do not say "
-                "'no specific details' or 'not mentioned' — just summarise what the results say:"
+                "and synthesise a single direct answer that covers every relevant item found.\n"
+                "\n"
+                "Strict rules for the reply:\n"
+                "- Write in natural prose. Do NOT reference the search results as 'Result 1', "
+                "'Result 2', '(Results 2, 8)', or any equivalent numbered back-reference. The "
+                "user sees the sources separately below the message; inline numbered citations "
+                "are noise.\n"
+                "- Do NOT meta-comment on the search results themselves "
+                "('the provided results indicate', 'the search results do not specify', "
+                "'no specific details were mentioned'). Just answer the question.\n"
+                "- If the results genuinely contradict each other or are thin, pick the "
+                "best-supported answer and state it directly. Don't hedge.\n"
+                "- Lead with the answer, not with a preamble.\n"
+                "\n"
+                "Search results:"
             )
         else:
             parts.append(
