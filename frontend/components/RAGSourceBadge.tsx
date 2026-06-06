@@ -17,9 +17,9 @@ export default function RAGSourceBadge({ ragUsed, sources = [] }: RAGSourceBadge
   if (!ragUsed) return null;
 
   return (
-    <div className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">
+    <div className="mt-2 text-xs text-emerald-300">
       <details className="group">
-        <summary className="flex cursor-pointer items-center gap-1.5 list-none">
+        <summary className="flex cursor-pointer items-center gap-1.5 list-none hover:text-emerald-200 transition-colors duration-150">
           <svg
             className="w-3 h-3 shrink-0"
             fill="none"
@@ -42,10 +42,10 @@ export default function RAGSourceBadge({ ragUsed, sources = [] }: RAGSourceBadge
           <div className="mt-1.5 space-y-1 border-l border-emerald-500/30 pl-2">
             {sources.map((src, idx) => (
               <div key={`${src.document_id}-${src.chunk_index}-${idx}`} className="text-[11px]">
-                <p className="font-semibold text-emerald-800 dark:text-emerald-200">
+                <p className="font-semibold text-emerald-200">
                   {src.filename}
                 </p>
-                <p className="text-emerald-700/90 dark:text-emerald-300/90">{src.snippet}</p>
+                <p className="text-emerald-300/90">{src.snippet}</p>
               </div>
             ))}
           </div>

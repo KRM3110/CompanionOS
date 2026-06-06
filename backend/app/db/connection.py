@@ -249,4 +249,48 @@ async def init_db() -> None:
             await conn.execute(
                 "UPDATE documents SET status = 'ready' WHERE COALESCE(chunk_count, 0) > 0"
             )
+
+        # Pre-alembic databases shipped with CHECK(status IN ('pending', 'ready')).
+        # The current schema also permits 'error', and the upload route writes
+        # 'error' when indexing fails. Rebuild the table if 'error' isn't allowed.
+        async with conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='documents'"
+        ) as cur:
+            row = await cur.fetchone()
+        documents_sql = row[0] if row else ""
+        if documents_sql and "'error'" not in documents_sql:
+            await conn.execute("PRAGMA foreign_keys = OFF")
+            await conn.execute(
+                """
+                CREATE TABLE documents_new (
+                    id TEXT PRIMARY KEY,
+                    workspace_id TEXT NOT NULL,
+                    filename TEXT NOT NULL,
+                    file_type TEXT,
+                    chunk_count INTEGER DEFAULT 0,
+                    guard_status TEXT DEFAULT 'clean',
+                    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'ready', 'error')),
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+                )
+                """
+            )
+            await conn.execute(
+                """
+                INSERT INTO documents_new
+                    (id, workspace_id, filename, file_type, chunk_count, guard_status, status, created_at)
+                SELECT id, workspace_id, filename, file_type, chunk_count, guard_status, status, created_at
+                FROM documents
+                """
+            )
+            await conn.execute("DROP TABLE documents")
+            await conn.execute("ALTER TABLE documents_new RENAME TO documents")
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_documents_workspace_created ON documents(workspace_id, created_at DESC)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status)"
+            )
+            await conn.execute("PRAGMA foreign_keys = ON")
+
         await conn.commit()

@@ -46,8 +46,9 @@ class Settings(BaseSettings):
     modes_dir: str = ""  # Default resolved at runtime from modes/data/ inside the package
     # RAG — ChromaDB persistent storage path (must be on a mounted volume in Docker)
     chroma_data_path: str = "/app/data/chroma"
-    # RAG — Gemini embedding model (768-dim)
-    embed_model: str = "models/text-embedding-004"
+    # RAG — Gemini embedding model. text-embedding-004 was removed from the
+    # Gemini v1beta API; gemini-embedding-001 is the current production model.
+    embed_model: str = "models/gemini-embedding-001"
     # RAG — Chunking parameters
     rag_chunk_size: int = 500
     rag_chunk_overlap: int = 50

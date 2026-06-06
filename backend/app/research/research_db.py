@@ -2,7 +2,8 @@ import json
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from ..db import get_conn, _utc_now
+from ..db import get_conn
+from ..db.connection import _utc_now
 
 
 async def create_research_session(question: str, workspace_id: Optional[str] = None) -> str:

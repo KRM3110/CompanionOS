@@ -50,12 +50,23 @@ export default function ChatWindow({
 }: ChatWindowProps) {
   const [input, setInput] = useState('');
   const [showModeMenu, setShowModeMenu] = useState(false);
+  const [modeMenuShown, setModeMenuShown] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{ text: string; ok: boolean } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const modeMenuRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Mount-flip drives the popover's origin-aware scale-in transition.
+  // Keeps the animation interruptible (CSS transitions, not keyframes).
+  useEffect(() => {
+    if (showModeMenu) {
+      const id = requestAnimationFrame(() => setModeMenuShown(true));
+      return () => cancelAnimationFrame(id);
+    }
+    setModeMenuShown(false);
+  }, [showModeMenu]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -147,31 +158,40 @@ export default function ChatWindow({
 
       <form
         onSubmit={handleSubmit}
-        className="flex items-end gap-2 bg-muted/60 border border-border/60 rounded-3xl px-4 py-3 focus-within:border-primary/30 focus-within:bg-muted/80 transition-all shadow-lg w-full"
+        className="flex items-end gap-2 bg-muted/60 border border-border/60 rounded-3xl px-4 py-3 focus-within:border-primary/30 focus-within:bg-muted/80 transition-[background-color,border-color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] shadow-lg w-full"
       >
         {/* + mode picker button */}
         <div className="relative shrink-0 self-end" ref={modeMenuRef}>
           <button
             type="button"
             onClick={() => setShowModeMenu(!showModeMenu)}
-            className={`w-8 h-8 flex items-center justify-center rounded-xl transition-colors text-base ${
+            className={`w-8 h-8 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 flex items-center justify-center rounded-xl active:scale-95 transition-[background-color,color,transform] duration-[160ms] ease-[cubic-bezier(0.23,1,0.32,1)] text-base ${
               selectedMode
                 ? 'bg-primary/10 text-primary hover:bg-primary/20'
                 : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
             }`}
             title="Select mode"
+            aria-label="Select mode"
+            aria-expanded={showModeMenu}
+            aria-haspopup="menu"
           >
             {selectedMode ? selectedMode.icon : '+'}
           </button>
 
           {/* Dropdown */}
           {showModeMenu && (
-            <div className="absolute bottom-full mb-2 left-0 bg-card border border-border rounded-xl shadow-xl py-1.5 min-w-[190px] z-50 animate-fade-in">
+            <div
+              role="menu"
+              className={`absolute bottom-full mb-2 left-0 bg-card border border-border rounded-xl shadow-xl py-1.5 min-w-[190px] z-50 origin-bottom-left transition-[opacity,transform] duration-[180ms] ease-[cubic-bezier(0.23,1,0.32,1)] ${
+                modeMenuShown ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
+              }`}
+            >
               {/* Upload option - always shown */}
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => { setShowModeMenu(false); fileInputRef.current?.click(); }}
-                className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 text-foreground hover:bg-muted/50 transition-colors"
+                className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 text-foreground hover:bg-muted/50 active:scale-[0.98] transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]"
               >
                 <span className="text-base leading-none">📎</span>
                 <span className="font-medium">Add files</span>
@@ -189,8 +209,9 @@ export default function ChatWindow({
                   <button
                     key={mode.id}
                     type="button"
+                    role="menuitem"
                     onClick={() => { onSelectMode(mode.id); setShowModeMenu(false); }}
-                    className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 transition-colors ${
+                    className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 active:scale-[0.98] transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] ${
                       isSelected
                         ? 'text-primary bg-primary/5'
                         : 'text-foreground hover:bg-muted/50'
@@ -233,7 +254,8 @@ export default function ChatWindow({
         <button
           type="submit"
           disabled={loading || !input.trim()}
-          className="w-8 h-8 flex items-center justify-center bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:scale-100 transition-all shrink-0 self-end"
+          aria-label="Send message"
+          className="w-8 h-8 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 flex items-center justify-center bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100 transition-[background-color,transform,opacity] duration-[160ms] ease-[cubic-bezier(0.23,1,0.32,1)] shrink-0 self-end"
         >
           {loading
             ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />

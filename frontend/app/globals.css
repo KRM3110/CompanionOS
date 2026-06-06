@@ -35,8 +35,8 @@
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
 
-  --animate-slide-in: slide-in 0.3s ease-out;
-  --animate-fade-in: fade-in 0.4s ease-out forwards;
+  --animate-slide-in: slide-in 220ms cubic-bezier(0.23, 1, 0.32, 1);
+  --animate-fade-in: fade-in 220ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
 
   @keyframes slide-in {
     from {
@@ -101,4 +101,15 @@
   --input: 217.2 32.6% 17.5%;
   --ring: 263.4 70% 50.4%;
   --radius: 0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

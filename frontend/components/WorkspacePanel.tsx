@@ -126,7 +126,7 @@ export default function WorkspacePanel({
               id="workspace-create-btn"
               onClick={handleCreate}
               disabled={creating || !newName.trim()}
-              className="flex-1 py-2 text-xs font-semibold bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              className="flex-1 py-2 text-xs font-semibold bg-primary text-primary-foreground rounded-md hover:bg-primary/90 active:scale-[0.97] disabled:opacity-50 disabled:active:scale-100 transition-[background-color,opacity,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]"
             >
               {creating ? (
                 <span className="flex items-center justify-center gap-1.5">
@@ -137,7 +137,7 @@ export default function WorkspacePanel({
             </button>
             <button
               onClick={() => { setShowForm(false); setNewName(''); setNewDesc(''); }}
-              className="px-3 py-2 text-xs text-muted-foreground hover:text-foreground rounded-md hover:bg-muted/50 transition-colors"
+              className="px-3 py-2 text-xs text-muted-foreground hover:text-foreground rounded-md hover:bg-muted/50 active:scale-[0.97] transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]"
             >
               Cancel
             </button>
@@ -177,9 +177,9 @@ export default function WorkspacePanel({
               <div key={ws.id}>
                 <div
                   onClick={() => onSelectWorkspace(ws.id)}
-                  className={`group flex items-start justify-between px-3 py-2.5 rounded-lg cursor-pointer transition-all duration-150 ${
+                  className={`group flex items-start justify-between px-3 py-2.5 rounded-lg cursor-pointer transition-[background-color,border-color,color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] ${
                     isActive
-                      ? 'bg-emerald-500/10 border border-emerald-500/25 text-emerald-700 dark:text-emerald-400'
+                      ? 'bg-emerald-500/10 border border-emerald-500/25 text-emerald-300'
                       : 'text-foreground hover:bg-muted/40 border border-transparent hover:border-border'
                   }`}
                 >
@@ -215,8 +215,9 @@ export default function WorkspacePanel({
 
                   <button
                     onClick={(e) => handleDelete(ws.id, e)}
-                    className="shrink-0 ml-2 mt-0.5 opacity-0 group-hover:opacity-100 p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
+                    className="shrink-0 ml-2 mt-0.5 opacity-0 group-hover:opacity-100 p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 active:scale-95 transition-[opacity,color,background-color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]"
                     title="Delete workspace"
+                    aria-label={`Delete workspace ${ws.name}`}
                   >
                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -242,8 +243,9 @@ export default function WorkspacePanel({
                         {onDeleteDocument && (
                           <button
                             onClick={(e) => { e.stopPropagation(); onDeleteDocument(doc); }}
-                            className="shrink-0 opacity-0 group-hover/doc:opacity-100 p-0.5 rounded text-muted-foreground hover:text-destructive transition-all"
+                            className="shrink-0 opacity-0 group-hover/doc:opacity-100 p-0.5 rounded text-muted-foreground hover:text-destructive active:scale-95 transition-[opacity,color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]"
                             title="Remove document"
+                            aria-label={`Remove ${doc.filename}`}
                           >
                             <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
