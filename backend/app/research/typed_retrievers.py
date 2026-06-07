@@ -1,184 +1,166 @@
 """
-Typed retrievers — authoritative structured data for version/release questions.
+Typed retrievers — authoritative version / release data for chat responses.
 
-When a research question names a package or repository and asks about
-versions, releases, or changelogs, the canonical answer lives in a typed API
-(npm registry, PyPI, GitHub releases) rather than in any prose page. These
-retrievers query those APIs directly and return a markdown table ready to
-embed under the report's "Key Findings" heading. The result is used as the
-authoritative `FACTS` block by the report builder.
+When the user asks about a software package's versions, releases, patches, or
+changelog, the precise answer lives in a typed API (npm registry, PyPI, the
+GitHub Releases API) rather than in any prose page. This module:
 
-Each retriever exposes two methods:
-    matches(question)      — cheap pattern check; True when this retriever
-                             is potentially applicable.
-    async fetch(question)  — runs the API call. Returns a structured text
-                             block or None.
+  1. Asks a small classifier LLM to read the user's question and decide
+     which sources (if any) should be queried, with what package or repo
+     name, and what version filter.
+  2. Dispatches the chosen API calls in parallel.
+  3. Returns the results as a single FACTS string the chat / research
+     pipeline can hand to the response-generation LLM.
 
-`gather_facts(question)` runs every matching retriever concurrently and
-returns one concatenated FACTS string (or "" if nothing matched / fetched).
+There is no curated list of package names or aliases here. The classifier
+is responsible for understanding what the user is asking about — including
+the mapping from how a human writes a name ("Next.js", "PyTorch") to the
+registry id it lives under ("next", "torch").
+
+Public surface:
+    gather_facts(question)  → FactsResult(text, sources, reasoning)
+    extract_version_date_map(facts_text) → {version: canonical_date}
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
-from typing import List, Optional, Protocol, Tuple
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple
 
 import httpx
+
+from ..llm_client import llm_chat
 
 logger = logging.getLogger(__name__)
 
 _HTTP_TIMEOUT = 8.0
 _MAX_VERSIONS = 25
+_CLASSIFIER_TIMEOUT_S = 12
+_CLASSIFIER_MAX_TOKENS = 400
 
 
-# Words that, when present in a question, signal the user wants version /
-# release / changelog data rather than analytical prose. Used as a gate so we
-# don't waste registry calls on "What does Next.js do?" type questions.
-_VERSION_INTENT_RE = re.compile(
-    r"\b(version|versions|release|releases|patch|patches|changelog|update|"
-    r"updates|latest|recent|history)\b",
-    re.IGNORECASE,
-)
-
-# Curated allow-list of well-known npm package names.
-#
-# Why curated rather than "any word":
-#   Many real npm package ids are also common English words ("next",
-#   "react", "vue", "express"). A naive "any token" pattern would match
-#   half the words in any sentence and produce noisy false-positive
-#   registry calls. The allow-list captures the high-traffic cases
-#   cleanly; everything else flows through `_GenericNpmRetriever` below,
-#   which does a more conservative extraction and tolerates 404s.
-_KNOWN_NPM_PKGS = re.compile(
-    r"\b(next\.?js|next|react|vite|typescript|express|webpack|tailwindcss|"
-    r"tailwind|svelte|vue|nuxt|angular|astro|remix|eslint|prettier|jest|"
-    r"vitest|playwright|puppeteer|axios|redux|zustand|@?[\w-]+/[\w-]+)\b",
-    re.IGNORECASE,
-)
-
-# Same idea for PyPI — popular packages whose ids are common English words
-# get the allow-list; unknown packages flow through the generic path.
-_KNOWN_PYPI_PKGS = re.compile(
-    r"\b(fastapi|django|flask|requests|httpx|pydantic|sqlalchemy|numpy|"
-    r"pandas|scipy|scikit-?learn|pytorch|tensorflow|transformers|langchain|"
-    r"openai|anthropic|uvicorn|alembic|aiosqlite|chromadb|pytest|black|"
-    r"ruff|mypy)\b",
-    re.IGNORECASE,
-)
-
-# Matches GitHub-style "owner/repo" tokens. Excludes leading-dot strings so
-# that filenames like ".github/workflows" don't accidentally match.
-_GITHUB_REPO_RE = re.compile(r"\b([a-zA-Z0-9_-][a-zA-Z0-9._-]*)/([a-zA-Z0-9._-]+)\b")
+# ─── Classifier ────────────────────────────────────────────────────────────
 
 
-# Map between aliases users type and the canonical npm/PyPI package id.
-# Add new entries whenever you find a name that users say differently than
-# the registry stores it.
-_PKG_NAME_ALIASES = {
-    "nextjs": "next",
-    "next.js": "next",
-    "scikit-learn": "scikit-learn",
-    "scikitlearn": "scikit-learn",
-    "pytorch": "torch",
-    "tailwindcss": "tailwindcss",
-    "tailwind": "tailwindcss",
-}
+_CLASSIFIER_SYSTEM = """Decide whether the user's question needs authoritative version/release
+data from a software registry. Output JSON only:
 
-# Map between an npm/PyPI id and the human-readable name users say. Used in
-# the FACTS block label so the LLM bridges, e.g., "next" → "Next.js" when
-# the question phrases it as "Next.js".
-_PKG_DISPLAY_NAMES = {
-    "next": "Next.js",
-    "react": "React",
-    "vue": "Vue.js",
-    "nuxt": "Nuxt",
-    "svelte": "Svelte",
-    "astro": "Astro",
-    "remix": "Remix",
-    "angular": "Angular",
-    "vite": "Vite",
-    "webpack": "Webpack",
-    "typescript": "TypeScript",
-    "tailwindcss": "Tailwind CSS",
-    "eslint": "ESLint",
-    "prettier": "Prettier",
-    "jest": "Jest",
-    "vitest": "Vitest",
-    "playwright": "Playwright",
-    "puppeteer": "Puppeteer",
-    "axios": "Axios",
-    "express": "Express",
-    "redux": "Redux",
-    "zustand": "Zustand",
-    "fastapi": "FastAPI",
-    "django": "Django",
-    "flask": "Flask",
-    "requests": "Requests",
-    "httpx": "HTTPX",
-    "pydantic": "Pydantic",
-    "sqlalchemy": "SQLAlchemy",
-    "numpy": "NumPy",
-    "pandas": "pandas",
-    "scipy": "SciPy",
-    "scikit-learn": "scikit-learn",
-    "torch": "PyTorch",
-    "tensorflow": "TensorFlow",
-    "transformers": "Transformers (Hugging Face)",
-    "langchain": "LangChain",
-    "openai": "OpenAI Python SDK",
-    "anthropic": "Anthropic Python SDK",
-}
-
-
-def _canonical(name: str) -> str:
-    """Map a user-typed name to its canonical registry id."""
-    n = name.lower().strip()
-    return _PKG_NAME_ALIASES.get(n, n)
-
-
-def _display_name(pkg: str) -> str:
-    """Map a registry id to the human-readable name (or echo the id)."""
-    return _PKG_DISPLAY_NAMES.get(pkg, pkg)
-
-
-def _version_filter(question: str, pkg: str) -> Optional[str]:
-    """
-    Detect a version hint that scopes the question to a specific major series.
-
-    Examples: "Next.js 14"  → '14'
-              "React 18.2"  → '18.2'
-              "FastAPI"     → None  (no version mentioned)
-
-    The returned string is used by retrievers as a `startswith` prefix so
-    they only surface rows from the requested series instead of dumping the
-    package's latest 25 releases regardless of which major the user asked
-    about.
-    """
-    display = _display_name(pkg).lower()
-    names = {
-        pkg.lower(),
-        display,
-        display.replace(".", ""),
-        display.replace(" ", ""),
+{
+  "needs_facts": bool,
+  "queries": [
+    {
+      "source": "npm" | "pypi" | "github_releases",
+      "name": "<exact registry id, e.g. 'next', 'torch', 'vercel/next.js'>",
+      "version_constraint": "<version prefix the user mentioned>" | null
     }
-    names = {n for n in names if n}
-    if not names:
+  ],
+  "reasoning": "<one sentence>"
+}
+
+needs_facts is true only when the answer turns on specific versions,
+release dates, patches, or changelog data. Multiple queries are allowed
+(e.g. for comparisons).
+"""
+
+
+@dataclass
+class _Query:
+    source: str
+    name: str
+    version_constraint: Optional[str] = None
+
+
+@dataclass
+class FactsResult:
+    """Outcome of running the typed-retriever layer."""
+    text: str = ""
+    sources: List[str] = field(default_factory=list)
+    reasoning: str = ""
+
+    @property
+    def has_facts(self) -> bool:
+        return bool(self.text)
+
+
+def _extract_json_object(raw: str) -> Optional[dict]:
+    """
+    Best-effort JSON extraction from an LLM response.
+
+    Strips markdown code fences, then grabs the substring from the first
+    `{` to the last `}` and parses it. Returns None when no valid object
+    can be recovered.
+    """
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end < start:
         return None
-    name_alt = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
-    pattern = (
-        rf"\b(?:{name_alt})[\s.\-:]*(?:v|version\s+)?(\d+(?:\.\d+)?)"
-    )
-    m = re.search(pattern, question, re.IGNORECASE)
-    return m.group(1) if m else None
+    try:
+        return json.loads(text[start : end + 1])
+    except json.JSONDecodeError as e:
+        logger.warning("Classifier returned malformed JSON: %s", e)
+        return None
+
+
+async def _classify(question: str) -> Tuple[List[_Query], str]:
+    """
+    Run the classifier LLM. Returns (queries, reasoning).
+
+    On any failure (timeout, malformed output, unexpected schema) returns
+    ([], "") so the caller degrades gracefully to no FACTS.
+    """
+    try:
+        raw = await llm_chat(
+            [
+                {"role": "system", "content": _CLASSIFIER_SYSTEM},
+                {"role": "user", "content": question},
+            ],
+            timeout_s=_CLASSIFIER_TIMEOUT_S,
+            max_tokens=_CLASSIFIER_MAX_TOKENS,
+        )
+    except Exception as e:
+        logger.warning("Classifier LLM call failed: %s", e)
+        return [], ""
+
+    parsed = _extract_json_object(raw)
+    if not parsed:
+        return [], ""
+
+    reasoning = (parsed.get("reasoning") or "").strip()
+    if not parsed.get("needs_facts"):
+        return [], reasoning
+
+    queries: List[_Query] = []
+    for q in parsed.get("queries", []) or []:
+        source = (q.get("source") or "").strip().lower()
+        name = (q.get("name") or "").strip()
+        constraint = q.get("version_constraint")
+        if isinstance(constraint, str):
+            constraint = constraint.strip() or None
+        else:
+            constraint = None
+        if source not in {"npm", "pypi", "github_releases"} or not name:
+            continue
+        queries.append(
+            _Query(source=source, name=name, version_constraint=constraint)
+        )
+    return queries, reasoning
+
+
+# ─── Source dispatch ───────────────────────────────────────────────────────
 
 
 def _filter_by_version(
     rows: List[Tuple[str, str]],
     version_prefix: Optional[str],
 ) -> List[Tuple[str, str]]:
-    """Keep rows whose version equals `<prefix>` or starts with `<prefix>.`."""
     if not version_prefix:
         return rows
     pfx_dot = version_prefix + "."
@@ -189,29 +171,25 @@ def _format_table_block(
     *,
     source_label: str,
     source_url: str,
-    pkg: str,
-    display: str,
+    name: str,
     rows: List[Tuple[str, str]],
     latest_global: str,
-    version_filter: Optional[str],
+    version_constraint: Optional[str],
     header_left: str = "Version",
     header_right: str = "Release Date",
 ) -> str:
-    """Assemble the FACTS block header + markdown table."""
     table_rows = "\n".join(f"| {v} | {d} |" for v, d in rows)
     header = (
-        f'[Authoritative version data — {source_label} package '
-        f'"{pkg}" ({display})]\n'
+        f'[Authoritative version data — {source_label} "{name}"]\n'
         f"Source: {source_url}\n"
     )
-    if version_filter:
+    if version_constraint:
         header += (
-            f"FILTERED to the {version_filter}.x release series "
-            f"(question asks about version {version_filter}).\n"
+            f"FILTERED to the {version_constraint}.x release series.\n"
             f"latest stable in this series: {rows[0][0]}\n"
             f"latest stable overall: {latest_global}\n"
             f"showing {len(rows)} most-recent releases in the "
-            f"{version_filter}.x series (newest first):\n\n"
+            f"{version_constraint}.x series (newest first):\n\n"
         )
     else:
         header += (
@@ -227,208 +205,13 @@ def _format_table_block(
     )
 
 
-# ─── Retrievers ────────────────────────────────────────────────────────────
-
-
-class Retriever(Protocol):
-    """A typed source of authoritative facts for a given question shape."""
-
-    name: str
-
-    def matches(self, question: str) -> bool: ...
-    async def fetch(
-        self, client: httpx.AsyncClient, question: str
-    ) -> Optional[str]: ...
-
-
-class NpmRetriever:
-    """
-    Fetches version+date data from the npm registry for well-known packages.
-
-    The match is gated on the known-packages allow-list (see `_KNOWN_NPM_PKGS`)
-    to avoid false-positive lookups on common English words.
-    """
-
-    name = "npm"
-
-    def matches(self, question: str) -> bool:
-        return bool(
-            _VERSION_INTENT_RE.search(question)
-            and _KNOWN_NPM_PKGS.search(question)
-        )
-
-    async def fetch(
-        self, client: httpx.AsyncClient, question: str
-    ) -> Optional[str]:
-        m = _KNOWN_NPM_PKGS.search(question)
-        if not m:
-            return None
-        pkg = _canonical(m.group(0))
-        return await _npm_fetch(client, pkg, question)
-
-
-class PypiRetriever:
-    """
-    Fetches version+date data from PyPI for well-known packages.
-
-    Same gating pattern as `NpmRetriever`.
-    """
-
-    name = "pypi"
-
-    def matches(self, question: str) -> bool:
-        return bool(
-            _VERSION_INTENT_RE.search(question)
-            and _KNOWN_PYPI_PKGS.search(question)
-        )
-
-    async def fetch(
-        self, client: httpx.AsyncClient, question: str
-    ) -> Optional[str]:
-        m = _KNOWN_PYPI_PKGS.search(question)
-        if not m:
-            return None
-        pkg = _canonical(m.group(0))
-        return await _pypi_fetch(client, pkg, question)
-
-
-class GithubReleasesRetriever:
-    """
-    Fetches release data from the GitHub Releases API when the question
-    contains an `owner/repo` token alongside version intent.
-    """
-
-    name = "github_releases"
-
-    def matches(self, question: str) -> bool:
-        if not _VERSION_INTENT_RE.search(question):
-            return False
-        m = _GITHUB_REPO_RE.search(question)
-        if not m:
-            return False
-        owner = m.group(1)
-        # Reject obvious non-owner tokens: anything containing a dot is
-        # almost certainly a filename or domain, not an org name.
-        return "." not in owner
-
-    async def fetch(
-        self, client: httpx.AsyncClient, question: str
-    ) -> Optional[str]:
-        m = _GITHUB_REPO_RE.search(question)
-        if not m:
-            return None
-        owner, repo = m.group(1), m.group(2)
-        try:
-            r = await client.get(
-                f"https://api.github.com/repos/{owner}/{repo}/releases",
-                params={"per_page": _MAX_VERSIONS},
-                timeout=_HTTP_TIMEOUT,
-                headers={"Accept": "application/vnd.github+json"},
-            )
-        except httpx.RequestError as e:
-            logger.warning("github fetch failed for %s/%s: %s", owner, repo, e)
-            return None
-        if r.status_code != 200:
-            return None
-        try:
-            data = r.json()
-        except ValueError:
-            return None
-        if not isinstance(data, list) or not data:
-            return None
-        rows = []
-        for rel in data[:_MAX_VERSIONS]:
-            tag = rel.get("tag_name", "")
-            published = (rel.get("published_at", "") or "")[:10]
-            rows.append(f"| {tag} | {published} |")
-        return (
-            f'[Authoritative release data — GitHub repository "{owner}/{repo}"]\n'
-            f"Source: https://api.github.com/repos/{owner}/{repo}/releases\n"
-            f"recent {len(rows)} releases (newest first):\n\n"
-            f"| Tag | Published |\n"
-            f"| :--- | :--- |\n"
-            + "\n".join(rows)
-        )
-
-
-# Common English words and version-intent vocabulary that should never be
-# treated as candidate package names. The list is kept short on purpose:
-# anything not in it gets tried against the registry, and a 404 is silent.
-_STOPWORDS = {
-    "the", "a", "an", "and", "or", "but", "if", "of", "for", "with",
-    "from", "to", "into", "on", "off", "at", "by", "as", "is", "are",
-    "was", "were", "be", "been", "being", "have", "has", "had", "do",
-    "does", "did", "can", "could", "will", "would", "should", "may",
-    "might", "must", "this", "that", "these", "those", "it", "its",
-    "they", "them", "their", "our", "you", "your", "any", "all",
-    "what", "which", "when", "where", "who", "why", "how",
-    "version", "versions", "release", "releases", "patch", "patches",
-    "changelog", "update", "updates", "latest", "recent", "history",
-    "npm", "pypi", "github", "library", "package", "module", "framework",
-    "node", "python", "java", "javascript", "typescript", "stable",
-    "between", "compare", "comparison", "list", "show", "tell",
-    "now", "currently", "today", "yesterday",
-}
-
-# High-confidence package-name patterns. These run first and provide the
-# best candidates: words explicitly tagged as packages, kebab-case
-# identifiers, and scoped npm names.
-_HIGH_CONFIDENCE_PKG_RE = re.compile(
-    r"\b(?:package|library|module|framework|lib|dep|dependency)\s+"
-    r"([a-z][\w.-]{2,})\b"               # "package <name>"
-    r"|\b([a-z][\w-]{2,}(?:-[\w-]+)+)\b"  # kebab-case
-    r"|(@[\w-]+/[\w-]+)\b",               # scoped npm "@scope/pkg"
-    re.IGNORECASE,
-)
-
-# Catch-all for plain lowercase identifiers. Only used after the
-# high-confidence patterns; results pass through stopword filtering.
-_LOW_CONFIDENCE_PKG_RE = re.compile(r"\b([a-z][a-z0-9_-]{2,19})\b")
-
-
-def _candidate_packages(question: str) -> List[str]:
-    """
-    Extract plausible package names from a question that the curated
-    allow-lists didn't match.
-
-    Two passes: a high-confidence pass picks up obviously package-shaped
-    tokens (kebab-case, scoped npm, explicit "package X" mentions); a
-    low-confidence pass picks up any remaining lowercase identifier that
-    is not a common English word or version-intent term.
-
-    The generic retrievers tolerate 404s, so an occasional bad guess is
-    cheap. Candidates are returned in first-occurrence order, deduplicated,
-    and the caller bounds how many are actually queried.
-    """
-    seen: set[str] = set()
-    out: List[str] = []
-    for m in _HIGH_CONFIDENCE_PKG_RE.finditer(question):
-        for group in m.groups():
-            if not group:
-                continue
-            name = group.lower().strip()
-            if name and name not in seen and name not in _STOPWORDS:
-                seen.add(name)
-                out.append(name)
-    for m in _LOW_CONFIDENCE_PKG_RE.finditer(question.lower()):
-        name = m.group(1)
-        if name in seen or name in _STOPWORDS or name.isdigit():
-            continue
-        seen.add(name)
-        out.append(name)
-    return out
-
-
-async def _npm_fetch(
-    client: httpx.AsyncClient, pkg: str, question: str
-) -> Optional[str]:
-    """Fetch a package from the npm registry and format as a FACTS block."""
+async def _npm_fetch(client: httpx.AsyncClient, q: _Query) -> Optional[str]:
     try:
         r = await client.get(
-            f"https://registry.npmjs.org/{pkg}", timeout=_HTTP_TIMEOUT
+            f"https://registry.npmjs.org/{q.name}", timeout=_HTTP_TIMEOUT
         )
     except httpx.RequestError as e:
-        logger.warning("npm fetch failed for %s: %s", pkg, e)
+        logger.warning("npm fetch failed for %s: %s", q.name, e)
         return None
     if r.status_code != 200:
         return None
@@ -445,36 +228,29 @@ async def _npm_fetch(
     if not stable:
         return None
     stable.sort(key=lambda x: [int(p) for p in x[0].split(".")], reverse=True)
-    version_filter = _version_filter(question, pkg)
-    filtered = _filter_by_version(stable, version_filter)
-    if version_filter and not filtered:
-        # Question targets a series that doesn't exist for this package —
-        # better to surface nothing than a list from a different major.
+    filtered = _filter_by_version(stable, q.version_constraint)
+    if q.version_constraint and not filtered:
         return None
     rows_to_show = filtered[:_MAX_VERSIONS]
     dist_tags = data.get("dist-tags", {}) or {}
     latest_global = dist_tags.get("latest", stable[0][0])
     return _format_table_block(
-        source_label="npm",
-        source_url=f"https://registry.npmjs.org/{pkg}",
-        pkg=pkg,
-        display=_display_name(pkg),
+        source_label="npm package",
+        source_url=f"https://registry.npmjs.org/{q.name}",
+        name=q.name,
         rows=rows_to_show,
         latest_global=latest_global,
-        version_filter=version_filter,
+        version_constraint=q.version_constraint,
     )
 
 
-async def _pypi_fetch(
-    client: httpx.AsyncClient, pkg: str, question: str
-) -> Optional[str]:
-    """Fetch a package from PyPI and format as a FACTS block."""
+async def _pypi_fetch(client: httpx.AsyncClient, q: _Query) -> Optional[str]:
     try:
         r = await client.get(
-            f"https://pypi.org/pypi/{pkg}/json", timeout=_HTTP_TIMEOUT
+            f"https://pypi.org/pypi/{q.name}/json", timeout=_HTTP_TIMEOUT
         )
     except httpx.RequestError as e:
-        logger.warning("pypi fetch failed for %s: %s", pkg, e)
+        logger.warning("pypi fetch failed for %s: %s", q.name, e)
         return None
     if r.status_code != 200:
         return None
@@ -497,145 +273,99 @@ async def _pypi_fetch(
         return [int(p) if p.isdigit() else 0 for p in item[0].split(".")]
 
     raw.sort(key=_key, reverse=True)
-    version_filter = _version_filter(question, pkg)
-    filtered = _filter_by_version(raw, version_filter)
-    if version_filter and not filtered:
+    filtered = _filter_by_version(raw, q.version_constraint)
+    if q.version_constraint and not filtered:
         return None
     rows_to_show = filtered[:_MAX_VERSIONS]
     latest_global = data.get("info", {}).get("version", raw[0][0])
     return _format_table_block(
-        source_label="PyPI",
-        source_url=f"https://pypi.org/pypi/{pkg}/json",
-        pkg=pkg,
-        display=_display_name(pkg),
+        source_label="PyPI package",
+        source_url=f"https://pypi.org/pypi/{q.name}/json",
+        name=q.name,
         rows=rows_to_show,
         latest_global=latest_global,
-        version_filter=version_filter,
+        version_constraint=q.version_constraint,
     )
 
 
-class GenericNpmRetriever:
-    """
-    Fallback npm retriever for packages not on the curated allow-list.
-
-    Extracts candidate package names from the question and attempts the
-    registry lookup for each. Real packages return data; 404s are silent.
-    Bounded to a small number of candidates per question to keep latency
-    predictable.
-    """
-
-    name = "npm_generic"
-    max_candidates = 3
-
-    def matches(self, question: str) -> bool:
-        if not _VERSION_INTENT_RE.search(question):
-            return False
-        # Only run when no allow-listed name was found — otherwise the
-        # curated retriever already handles this question.
-        if _KNOWN_NPM_PKGS.search(question):
-            return False
-        return bool(_candidate_packages(question))
-
-    async def fetch(
-        self, client: httpx.AsyncClient, question: str
-    ) -> Optional[str]:
-        candidates = _candidate_packages(question)[: self.max_candidates]
-        for raw_name in candidates:
-            pkg = _canonical(raw_name)
-            block = await _npm_fetch(client, pkg, question)
-            if block:
-                return block
+async def _github_releases_fetch(
+    client: httpx.AsyncClient, q: _Query
+) -> Optional[str]:
+    if "/" not in q.name:
         return None
-
-
-class GenericPypiRetriever:
-    """Fallback PyPI retriever — mirror of `GenericNpmRetriever` for PyPI."""
-
-    name = "pypi_generic"
-    max_candidates = 3
-
-    def matches(self, question: str) -> bool:
-        if not _VERSION_INTENT_RE.search(question):
-            return False
-        if _KNOWN_PYPI_PKGS.search(question):
-            return False
-        return bool(_candidate_packages(question))
-
-    async def fetch(
-        self, client: httpx.AsyncClient, question: str
-    ) -> Optional[str]:
-        candidates = _candidate_packages(question)[: self.max_candidates]
-        for raw_name in candidates:
-            pkg = _canonical(raw_name)
-            block = await _pypi_fetch(client, pkg, question)
-            if block:
-                return block
+    owner, _, repo = q.name.partition("/")
+    if not owner or not repo:
         return None
+    try:
+        r = await client.get(
+            f"https://api.github.com/repos/{owner}/{repo}/releases",
+            params={"per_page": _MAX_VERSIONS},
+            timeout=_HTTP_TIMEOUT,
+            headers={"Accept": "application/vnd.github+json"},
+        )
+    except httpx.RequestError as e:
+        logger.warning("github fetch failed for %s: %s", q.name, e)
+        return None
+    if r.status_code != 200:
+        return None
+    try:
+        data = r.json()
+    except ValueError:
+        return None
+    if not isinstance(data, list) or not data:
+        return None
+    rows = []
+    for rel in data[:_MAX_VERSIONS]:
+        tag = rel.get("tag_name", "")
+        published = (rel.get("published_at", "") or "")[:10]
+        rows.append(f"| {tag} | {published} |")
+    return (
+        f'[Authoritative release data — GitHub repository "{owner}/{repo}"]\n'
+        f"Source: https://api.github.com/repos/{owner}/{repo}/releases\n"
+        f"recent {len(rows)} releases (newest first):\n\n"
+        f"| Tag | Published |\n"
+        f"| :--- | :--- |\n"
+        + "\n".join(rows)
+    )
 
 
-# Registry order matters: curated retrievers run first because they're
-# free of false positives; generic ones run only when the allow-list misses.
-_RETRIEVERS: List[Retriever] = [
-    NpmRetriever(),
-    PypiRetriever(),
-    GithubReleasesRetriever(),
-    GenericNpmRetriever(),
-    GenericPypiRetriever(),
-]
+_DISPATCH = {
+    "npm": _npm_fetch,
+    "pypi": _pypi_fetch,
+    "github_releases": _github_releases_fetch,
+}
 
 
-async def gather_facts(question: str) -> str:
-    """Run every matching retriever concurrently and return joined FACTS."""
-    active = [r for r in _RETRIEVERS if r.matches(question)]
-    if not active:
-        return ""
+# ─── Public API ────────────────────────────────────────────────────────────
+
+
+async def gather_facts(question: str) -> FactsResult:
+    """
+    Classify the user's question, then fetch from the chosen sources in
+    parallel. Returns a `FactsResult` whose `text` is empty when the
+    classifier decided no facts were needed (or when every fetch failed).
+    """
+    queries, reasoning = await _classify(question)
+    if not queries:
+        return FactsResult(text="", sources=[], reasoning=reasoning)
+
     async with httpx.AsyncClient(follow_redirects=True) as client:
         results = await asyncio.gather(
-            *(r.fetch(client, question) for r in active),
+            *(_DISPATCH[q.source](client, q) for q in queries),
             return_exceptions=True,
         )
+
     blocks: List[str] = []
-    for r, res in zip(active, results):
+    used: List[str] = []
+    for q, res in zip(queries, results):
         if isinstance(res, Exception):
-            logger.warning("retriever %s raised: %s", r.name, res)
+            logger.warning("retriever %s/%s raised: %s", q.source, q.name, res)
             continue
         if res:
             blocks.append(res)
-    return "\n\n".join(blocks)
-
-
-def names_that_matched(question: str) -> List[str]:
-    """Names of retrievers that will run for this question. Used by SSE."""
-    return [r.name for r in _RETRIEVERS if r.matches(question)]
-
-
-# ─── Post-process helpers (used by report_builder) ─────────────────────────
-
-
-_TABLE_ROW_RE = re.compile(
-    r"^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*$", re.MULTILINE
-)
-_VERSION_LIKE_RE = re.compile(r"^v?\d+\.\d+(\.\d+)?(-[\w.]+)?$")
-
-
-def extract_version_date_map(facts_text: str) -> dict[str, str]:
-    """
-    Parse a FACTS text block and return a mapping of version → canonical date.
-
-    The report builder uses this map after the LLM call: if the model emits a
-    version table whose dates disagree with the canonical values, those cells
-    are replaced. This is the deterministic safety net for models prone to
-    smoothing or interpolating date sequences.
-    """
-    out: dict[str, str] = {}
-    for v, d in _TABLE_ROW_RE.findall(facts_text):
-        v_clean = v.strip()
-        d_clean = d.strip()
-        if v_clean.lower() in {"version", "tag", "release"}:
-            continue
-        if not _VERSION_LIKE_RE.match(v_clean):
-            continue
-        if not re.match(r"^\d{4}-\d{2}-\d{2}$", d_clean):
-            continue
-        out.setdefault(v_clean, d_clean)
-    return out
+            used.append(f"{q.source}:{q.name}")
+    return FactsResult(
+        text="\n\n".join(blocks),
+        sources=used,
+        reasoning=reasoning,
+    )

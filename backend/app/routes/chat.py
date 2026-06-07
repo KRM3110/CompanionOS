@@ -132,6 +132,7 @@ async def chat_send_api(req: ChatSendReq):
 
     web_context = ""
     focus_web_results: List[Dict[str, Any]] = []
+    facts_context = ""
     if mode_id == "focus":
         try:
             from ..research.web_searcher import search as web_search
@@ -147,11 +148,25 @@ async def chat_send_api(req: ChatSendReq):
         except Exception as e:
             logger.warning("Web search failed: %s", e)
 
-    combined_context = (
-        (rag_context + "\n\n" + web_context).strip()
-        if (rag_context and web_context)
-        else (web_context or rag_context)
-    )
+        # Typed retrievers: a small classifier LLM decides whether the message
+        # needs authoritative version / release data and which registry to
+        # hit. Returns a markdown table the chat model can copy directly.
+        # No-op (silent) for conceptual / how-to / chitchat messages.
+        try:
+            from ..research import typed_retrievers
+
+            facts_result = await typed_retrievers.gather_facts(req.message)
+            if facts_result.has_facts:
+                facts_context = "[AUTHORITATIVE FACTS]\n" + facts_result.text
+        except Exception as e:
+            logger.warning("Typed retrievers failed in focus mode: %s", e)
+
+    # Context order matters for model attention: earliest blocks are oldest
+    # in working memory. RAG comes first (long-lived workspace context),
+    # then web search results (transient), then FACTS last so authoritative
+    # data is the model's most-recent input before generation.
+    context_blocks = [rag_context, web_context, facts_context]
+    combined_context = "\n\n".join(b for b in context_blocks if b)
 
     all_tools = state.TOOLS_REGISTRY.list_tools()
     system_prompt = build_system_prompt(
