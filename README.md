@@ -392,19 +392,6 @@ Feel free to open an issue for any questions or concerns. We're here to help!
 
 ---
 
-## 📝 License
-
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for complete details.
-
-### What this means:
-
-- ✅ **Commercial use:** You can use this project commercially
-- ✅ **Modification:** You can modify the code
-- ✅ **Distribution:** You can distribute this software
-- ✅ **Private use:** You can use this project privately
-- ⚠️ **Liability:** The software is provided "as is", without warranty
-- ⚠️ **Trademark:** This license does not grant trademark rights
-
 ---
 
 <p align="center">Made with ❤️ by the CompanionOS Team</p>

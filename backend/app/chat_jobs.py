@@ -155,4 +155,4 @@ class ChatJobEngine:
             user_message=job.get("user_message", ""),
             assistant_final=assistant_final,
         )
-        return await asyncio.to_thread(run_tools, self._tools_registry, tool_ctx, enabled_map)
+        return await run_tools(self._tools_registry, tool_ctx, enabled_map)

@@ -20,9 +20,9 @@ class AlertsTool:
     def should_run(self, ctx: ToolContext) -> bool:
         return True
 
-    def run(self, ctx: ToolContext) -> List[Dict[str, Any]]:
+    async def run(self, ctx: ToolContext) -> List[Dict[str, Any]]:
         logger.debug("AlertsTool.run called for session %s", ctx.session_id)
-        extracted_data = extract_alerts(
+        extracted_data = await extract_alerts(
             mode_json=ctx.mode,
             memory_items=ctx.memory_items,
             recent_messages=ctx.recent_messages,

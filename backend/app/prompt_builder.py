@@ -35,6 +35,12 @@ def build_system_prompt(
 
     if base:
         parts = [f"Today's date is {today_str} (UTC).", base]
+        if tools:
+            tool_lines = ["AVAILABLE TOOLS (these run automatically after your reply — do NOT refuse capability):"]
+            for t in tools:
+                desc = getattr(t, "description", "") or ""
+                tool_lines.append(f"- {t.name}: {desc}")
+            parts.append("\n".join(tool_lines))
     else:
         rp = mode.get("response_policy", {})
         mp = mode.get("memory_policy", {})

@@ -2,7 +2,7 @@ import json
 import logging
 from typing import Any, AsyncIterator, Optional
 
-from . import web_searcher, research_planner, report_builder
+from . import web_searcher, research_planner, report_builder, typed_retrievers, source_fetcher
 from .research_db import update_research_plan, save_research_report, fail_research_session
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,22 @@ async def run_research(
       error         — something failed; payload: {message: str}
     """
     try:
+        # ── Step 0: Typed authoritative retrieval (no LLM cost) ────────────────
+        matched = typed_retrievers.names_that_matched(question)
+        facts = ""
+        if matched:
+            yield _event(
+                "typed_retrievers",
+                message=f"Hitting authoritative sources: {', '.join(matched)}",
+                retrievers=matched,
+            )
+            try:
+                facts = await typed_retrievers.gather_facts(question)
+            except Exception as e:
+                logger.warning("Typed retrievers failed for %s: %s", research_id, e)
+                facts = ""
+            yield _event("facts_ready", chars=len(facts))
+
         # ── Step 1: Generate search plan ───────────────────────────────────────
         yield _event("planning", message="Generating search plan...")
         try:
@@ -55,6 +71,20 @@ async def run_research(
         # De-duplicate by URL
         all_results = web_searcher.deduplicate(all_results)
 
+        # ── Step 2.5: Fetch main text of top-K sources (no LLM cost) ───────────
+        if all_results:
+            yield _event(
+                "fetching",
+                message=f"Fetching main text of top {min(len(all_results), 10)} sources...",
+                total=min(len(all_results), 10),
+            )
+            try:
+                all_results = await source_fetcher.enrich_sources(all_results)
+            except Exception as e:
+                logger.warning("Source fetching failed for %s: %s", research_id, e)
+            fetched_count = sum(1 for r in all_results if r.get("fetched"))
+            yield _event("fetched", fetched=fetched_count, total=len(all_results))
+
         # ── Step 3: RAG document context (optional) ─────────────────────────────
         rag_context = ""
         if workspace_id:
@@ -69,7 +99,9 @@ async def run_research(
         # ── Step 4: Synthesise report ───────────────────────────────────────────
         yield _event("building", message="Building research report...")
         try:
-            report_md = await report_builder.build_report(question, all_results, rag_context)
+            report_md = await report_builder.build_report(
+                question, all_results, rag_context=rag_context, facts=facts,
+            )
         except Exception as e:
             logger.error("Report building failed for %s: %s", research_id, e)
             report_md = f"# Research: {question}\n\nReport generation failed: {e}"
