@@ -396,8 +396,6 @@ Feel free to open an issue for any questions or concerns. We're here to help!
 
 ---
 
----
-
 <p align="center">Made with ❤️ by the CompanionOS Team</p>
 <p align="center">
   <a href="#">⬆️ Back to Top</a>
