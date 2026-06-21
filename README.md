@@ -41,7 +41,7 @@
 > Modern software development requires developers to continuously context-switch between local codebases, browser-based technical documentation search, and conversational AI tools. Maintaining project context inside narrow prompt windows is fragile: critical context is lost, manual search consumes hours, local files remain disconnected, and untrusted prompts expose systems to injection exploits. Developers need an unified local OS companion that indexes knowledge securely and processes multi-modal documentation without friction.
 
 ### The Solution
-CompanionOS combines configurable assistant modes (`safe`, `focus`, `research`) with active workspace sessions to solve the developer context crisis. Powered by an asynchronous FastAPI backend and an interactive Next.js interface, the platform reads documents (`.pdf`, `.docx`, `.txt`, `.md`), embeds them in a local ChromaDB instance, dynamically searches the live web using DuckDuckGo, extracts core developer memories, and formats output structures while applying rigorous real-time security scanning.
+CompanionOS combines configurable assistant modes (`safe`, `focus`, `research`) with active workspace sessions to solve the developer context crisis. Powered by an asynchronous FastAPI backend and an interactive Next.js interface, the platform reads documents (`.pdf`, `.docx`, `.txt`, `.md`), embeds them in a local ChromaDB instance using Gemini `text-embedding-004`, dynamically searches the live web using DuckDuckGo, extracts structured memories via the MX1 pipeline, and applies multi-tier security scanning on every upload and prompt.
 
 ```
                                   +-----------------------+
@@ -117,7 +117,7 @@ CompanionOS implements a modular component-based microservices architecture, iso
 ```
 KRM3110-CompanionOS/
 ├── 📄 docker-compose.yml             # Orchestrates frontend and backend container configurations
-├── 📄 Read Me.md                     # Project documentation
+├── 📄 README.md                      # Project documentation
 ├── 📄 .gitignore                     # Git tracking exclusions
 ├── 📁 frontend/                      # Next.js web application core files
 │   ├── 📄 package.json              # Web app dependencies and run scripts
@@ -247,13 +247,14 @@ KRM3110-CompanionOS/
 
 ## 🔐 Environment Variables
 
-Before starting the containers, set up the following environment variables in your `.env` file in the root directory.
+Backend variables live in `backend/.env` (loaded by `docker-compose.yml` via `env_file`). The frontend variable is baked in at build time by `docker-compose.yml` and can be overridden there.
 
-| Variable Name | Required | Default Value | Purpose |
-| :--- | :--- | :--- | :--- |
-| `GEMINI_API_KEY` | Yes | — | Google Gemini API key. The backend will refuse to start without it. |
-| `GEMINI_MODEL` | No | `gemini-2.5-flash` | The Gemini model used by `llm_client.py` for chat, MX1, security-guard, and research. |
-| `NEXT_PUBLIC_API_BASE_URL` | Yes | `http://localhost:8000` | Points the Next.js frontend application to the FastAPI backend host. |
+| Variable Name | Scope | Required | Default Value | Purpose |
+| :--- | :--- | :--- | :--- | :--- |
+| `GEMINI_API_KEY` | `backend/.env` | Yes | — | Google Gemini API key. The backend will refuse to start without it. |
+| `GEMINI_MODEL` | `backend/.env` | No | `gemini-2.5-flash` | The Gemini model used by `llm_client.py` for chat, MX1, security-guard, and research. |
+| `CHROMA_DATA_PATH` | backend env | No | `/app/data/chroma` | On-disk path for the ChromaDB collections (set in `docker-compose.yml`). |
+| `NEXT_PUBLIC_API_BASE` | frontend build arg | Yes | `http://localhost:8000` | Points the Next.js frontend at the FastAPI backend host. |
 
 ---
 
@@ -274,27 +275,30 @@ Ensure your local machine has the following software installed:
 #### 1. Clone the Codebase
 Clone the project repository to your local computer:
 ```bash
-git clone https://github.com/KRM3110/KRM3110-CompanionOS-a233ef0.git
-cd KRM3110-CompanionOS-a233ef0
+git clone https://github.com/KRM3110/CompanionOS.git
+cd CompanionOS
 ```
 
 #### 2. Configure Environment Variables
-Copy the root `.env.example` file to create your active `.env` configuration file:
+Create `backend/.env` with your Gemini credentials:
 ```bash
-cp .env.example .env
+cat > backend/.env <<'EOF'
+GEMINI_API_KEY=your_key_here
+GEMINI_MODEL=gemini-2.5-flash   # optional
+EOF
 ```
-Ensure you edit this `.env` file to match your environment, verifying the value of `NEXT_PUBLIC_API_BASE_URL` is accessible from your browser.
+The frontend's `NEXT_PUBLIC_API_BASE` is wired through `docker-compose.yml` and defaults to `http://localhost:8000` — change it there if the backend is reachable at a different host.
 
 #### 3. Run the Services using Docker Compose
-Deploy CompanionOS directly using Docker Compose. This single command downloads images, builds the custom frontend/backend Dockerfiles, configures storage, and starts both services:
+Deploy CompanionOS directly using Docker Compose. This single command builds the frontend/backend images, provisions the named volumes, and starts both services:
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
 #### 4. Apply Database Migrations
-Once the containers are running, navigate to the backend container to apply the baseline Alembic database schema migrations:
+Once the containers are running, apply the baseline Alembic schema:
 ```bash
-docker-compose exec backend alembic upgrade head
+docker compose exec backend alembic upgrade head
 ```
 
 #### 5. Verify the Installation
